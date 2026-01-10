@@ -7,35 +7,35 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
-        body { background: linear-gradient(135deg, #075E54, #128C7E, #25D366); min-height: 100vh; display: flex; align-items: center; justify-content: center; font-family: 'Inter', sans-serif; margin: 0; }
-        .glass { background: rgba(255, 255, 255, 0.95); border-radius: 24px; box-shadow: 0 20px 40px rgba(0,0,0,0.25); }
+        body { background: linear-gradient(135deg, #075E54, #128C7E, #25D366); min-height: 100vh; display: flex; align-items: center; justify-content: center; font-family: 'Inter', sans-serif; }
+        .glass { background: rgba(255, 255, 255, 0.95); border-radius: 24px; box-shadow: 0 20px 40px rgba(0,0,0,0.3); }
         .code-box { letter-spacing: 4px; border: 2px dashed #25D366; background: #f0fdf4; cursor: pointer; transition: 0.2s; }
         .code-box:active { transform: scale(0.95); }
     </style>
 </head>
 <body>
-    <div class="glass p-8 w-full max-w-md mx-4">
-        <div class="text-center mb-8">
-            <h1 class="text-2xl font-bold text-gray-800">Viral-Bot Linker</h1>
-            <p class="text-gray-500 text-sm mt-1">Connect your bot via Pairing Code</p>
+    <div class="glass p-8 w-full max-w-md mx-4 text-center">
+        <h1 class="text-2xl font-bold text-gray-800 mb-2">Viral-Bot Mini</h1>
+        <p class="text-gray-500 text-sm mb-6">Link your WhatsApp via Pairing Code</p>
+
+        <div class="space-y-4">
+            <input id="phone" type="text" placeholder="e.g. 2348100000000" class="w-full p-4 border rounded-xl focus:ring-2 focus:ring-green-500 outline-none transition-all">
+            <button onclick="getPair()" id="mainBtn" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-4 rounded-xl shadow-lg transition-all active:scale-95">
+                GET PAIRING CODE
+            </button>
         </div>
 
-        <div class="space-y-6">
-            <input type="text" id="phone" placeholder="e.g. 2348100000000" 
-                class="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-green-500 outline-none">
+        <div id="resultArea" class="hidden mt-8 space-y-4 animate-pop">
+            <p class="text-xs font-bold text-gray-400 uppercase">Tap the code to copy</p>
+            <div id="codeDisplay" class="code-box text-3xl font-black text-green-700 p-6 rounded-2xl" onclick="copyCode()"></div>
+            <p id="copyStatus" class="text-xs text-green-600 font-bold opacity-0 transition-opacity">COPIED TO CLIPBOARD!</p>
             
-            <button id="mainBtn" onclick="getPair()" 
-                class="w-full bg-green-600 text-white font-bold py-4 rounded-xl shadow-lg hover:bg-green-700">
-                GENERATE CODE
-            </button>
-
-            <div id="resultArea" class="hidden mt-8 text-center">
-                <p class="text-xs font-bold text-gray-400 mb-2 uppercase">Your Pairing Code:</p>
-                <div id="codeDisplay" onclick="copyCode()" 
-                    class="code-box text-3xl font-bold text-green-700 p-6 rounded-2xl">
-                    ---- ----
-                </div>
-                <p id="copyMsg" class="text-xs text-green-600 mt-2 opacity-0">Copied to clipboard!</p>
+            <div class="bg-blue-50 p-4 rounded-xl border border-blue-100 text-left">
+                <p class="text-xs text-blue-800 font-medium">
+                    1. Open WhatsApp > Linked Devices<br>
+                    2. Link a Device > Link with phone number instead<br>
+                    3. Enter the code shown above.
+                </p>
             </div>
         </div>
     </div>
@@ -44,10 +44,14 @@
         async function getPair() {
             const phone = document.getElementById('phone').value;
             const btn = document.getElementById('mainBtn');
-            if (!phone) return alert("Enter your phone number!");
+            const result = document.getElementById('resultArea');
+            const codeBox = document.getElementById('codeDisplay');
+
+            if (!phone) return alert("Enter phone number!");
 
             btn.disabled = true;
-            btn.innerText = "GENERATING...";
+            btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> GENERATING...';
+            result.classList.add('hidden');
 
             try {
                 const res = await fetch('/pair', {
@@ -56,26 +60,27 @@
                     body: JSON.stringify({ phone })
                 });
                 const data = await res.json();
+
                 if (data.code && data.code !== "FAILED") {
-                    document.getElementById('codeDisplay').innerText = data.code;
-                    document.getElementById('resultArea').classList.remove('hidden');
+                    codeBox.innerText = data.code;
+                    result.classList.remove('hidden');
                 } else {
-                    alert("Error: Check number or server logs.");
+                    alert("Error: Ensure the number includes country code.");
                 }
             } catch (e) {
-                alert("Server Error");
+                alert("Server Connection Error");
             } finally {
                 btn.disabled = false;
-                btn.innerText = "GET NEW CODE";
+                btn.innerText = 'GET NEW CODE';
             }
         }
 
         function copyCode() {
             const code = document.getElementById('codeDisplay').innerText;
             navigator.clipboard.writeText(code);
-            const msg = document.getElementById('copyMsg');
-            msg.style.opacity = "1";
-            setTimeout(() => msg.style.opacity = "0", 2000);
+            const status = document.getElementById('copyStatus');
+            status.style.opacity = '1';
+            setTimeout(() => { status.style.opacity = '0'; }, 2000);
         }
     </script>
 </body>
