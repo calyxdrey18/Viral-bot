@@ -11,8 +11,9 @@ const {
 const app = express()
 app.use(express.json())
 
-let sock
-let pairCode = ""
+let sock = null
+let pairCode = null
+let pairingInProgress = false
 
 /* ================= BOT SETTINGS ================= */
 
@@ -25,25 +26,39 @@ let settings = {
 /* ================= START BOT ================= */
 
 async function startBot(phone) {
+  if (pairingInProgress) return
+  pairingInProgress = true
+
   const { state, saveCreds } = await useMultiFileAuthState("auth")
   const { version } = await fetchLatestBaileysVersion()
 
   sock = makeWASocket({
     version,
     auth: state,
-    logger: Pino({ level: "silent" })
+    logger: Pino({ level: "silent" }),
+    printQRInTerminal: false
   })
 
   sock.ev.on("creds.update", saveCreds)
 
-  if (!state.creds.registered) {
-    pairCode = await sock.requestPairingCode(phone)
-    console.log("PAIR CODE:", pairCode)
-  }
+  // 🔥 WAIT A MOMENT, THEN REQUEST PAIR CODE
+  setTimeout(async () => {
+    if (!state.creds.registered) {
+      try {
+        pairCode = await sock.requestPairingCode(phone)
+        console.log("✅ PAIR CODE:", pairCode)
+      } catch (err) {
+        console.error("❌ Pair code error:", err.message)
+        pairCode = null
+      }
+    }
+  }, 1200)
 
   sock.ev.on("connection.update", ({ connection }) => {
     if (connection === "open") {
-      console.log("✅ WhatsApp connected")
+      console.log("✅ WhatsApp CONNECTED")
+      pairingInProgress = false
+      pairCode = null
     }
   })
 
@@ -60,17 +75,13 @@ async function startBot(phone) {
       msg.message.extendedTextMessage?.text ||
       ""
 
-    /* ===== ANTI FEATURES ===== */
-
     if (isGroup) {
       if (settings.antilink && text.includes("http")) {
         await sock.sendMessage(from, { delete: msg.key })
       }
-
       if (settings.antisticker && msg.message.stickerMessage) {
         await sock.sendMessage(from, { delete: msg.key })
       }
-
       if (settings.antiaudio && msg.message.audioMessage) {
         await sock.sendMessage(from, { delete: msg.key })
       }
@@ -78,8 +89,6 @@ async function startBot(phone) {
 
     if (!text.startsWith(".")) return
     const cmd = text.toLowerCase()
-
-    /* ===== GROUP COMMANDS ===== */
 
     if (cmd === ".mute" && isGroup) {
       await sock.groupSettingUpdate(from, "announcement")
@@ -95,44 +104,15 @@ async function startBot(phone) {
       const meta = await sock.groupMetadata(from)
       const members = meta.participants.map(p => p.id)
       const tags = members.map(u => `@${u.split("@")[0]}`).join(" ")
-
-      sock.sendMessage(from, {
-        text: tags,
-        mentions: members
-      })
+      sock.sendMessage(from, { text: tags, mentions: members })
     }
 
-    /* ===== TOGGLES ===== */
-
-    if (cmd === ".antilink on") {
-      settings.antilink = true
-      sock.sendMessage(from, { text: "✅ Anti-link ON" })
-    }
-
-    if (cmd === ".antilink off") {
-      settings.antilink = false
-      sock.sendMessage(from, { text: "❌ Anti-link OFF" })
-    }
-
-    if (cmd === ".antisticker on") {
-      settings.antisticker = true
-      sock.sendMessage(from, { text: "✅ Anti-sticker ON" })
-    }
-
-    if (cmd === ".antisticker off") {
-      settings.antisticker = false
-      sock.sendMessage(from, { text: "❌ Anti-sticker OFF" })
-    }
-
-    if (cmd === ".antiaudio on") {
-      settings.antiaudio = true
-      sock.sendMessage(from, { text: "✅ Anti-audio ON" })
-    }
-
-    if (cmd === ".antiaudio off") {
-      settings.antiaudio = false
-      sock.sendMessage(from, { text: "❌ Anti-audio OFF" })
-    }
+    if (cmd === ".antilink on") settings.antilink = true
+    if (cmd === ".antilink off") settings.antilink = false
+    if (cmd === ".antisticker on") settings.antisticker = true
+    if (cmd === ".antisticker off") settings.antisticker = false
+    if (cmd === ".antiaudio on") settings.antiaudio = true
+    if (cmd === ".antiaudio off") settings.antiaudio = false
   })
 }
 
@@ -142,8 +122,17 @@ app.post("/pair", async (req, res) => {
   const { phone } = req.body
   if (!phone) return res.json({ error: "Phone number required" })
 
-  await startBot(phone)
-  setTimeout(() => res.json({ code: pairCode }), 1500)
+  if (!sock) await startBot(phone)
+
+  // wait until pair code is ready
+  let tries = 0
+  const interval = setInterval(() => {
+    if (pairCode || tries > 10) {
+      clearInterval(interval)
+      res.json({ code: pairCode || "FAILED" })
+    }
+    tries++
+  }, 500)
 })
 
 /* ================= FRONTEND ================= */
