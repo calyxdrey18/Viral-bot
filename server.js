@@ -6,169 +6,161 @@ const {
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
   Browsers,
-  delay,
-  DisconnectReason
+  DisconnectReason,
+  delay
 } = require("@whiskeysockets/baileys");
 const { Boom } = require("@hapi/boom");
 
 const app = express();
 app.use(express.json());
+app.use(express.static(__dirname));
 
-let sock = null;
+let sock;
 let pairCode = null;
+let isStarting = false;
 
-// Bot Settings
-let settings = {
+// Bot settings
+const settings = {
   antilink: false,
   antisticker: false,
   antiaudio: false
 };
 
-async function startBot(phone = null) {
+async function startBot(phone) {
+  if (isStarting) return;
+  isStarting = true;
+
   const { state, saveCreds } = await useMultiFileAuthState("auth");
   const { version } = await fetchLatestBaileysVersion();
 
-  // If a socket already exists, terminate it cleanly first
-  if (sock) {
-    try { sock.logout(); } catch (e) {}
-  }
-
   sock = makeWASocket({
-    version,
     auth: state,
+    version,
     logger: Pino({ level: "silent" }),
     printQRInTerminal: false,
-    browser: Browsers.ubuntu("Chrome") // REQUIRED: Prevents "device not recognized" errors
+    browser: Browsers.ubuntu("Chrome")
   });
 
   sock.ev.on("creds.update", saveCreds);
 
-  // --- CONNECTION HANDLER ---
   sock.ev.on("connection.update", async (update) => {
     const { connection, lastDisconnect } = update;
 
     if (connection === "open") {
-      console.log("✅ WhatsApp CONNECTED");
-      const user = sock.user.id.split(":")[0] + "@s.whatsapp.net";
-      
-      // Success Message with Image
-      await sock.sendMessage(user, { 
-        image: { url: "https://i.ibb.co/V9X9X9/bot-connected.jpg" },
-        caption: "✅ *VIRAL-BOT LINKED SUCCESSFULLY*\n\nYour bot is now active. Type *.menu* to see available commands." 
-      });
-      pairCode = null; // Reset for next session
+      console.log("✅ WhatsApp Connected");
+      pairCode = null;
+      isStarting = false;
     }
 
     if (connection === "close") {
       const reason = new Boom(lastDisconnect?.error)?.output.statusCode;
-      console.log(`❌ Connection Closed: ${reason}`);
+      console.log("❌ Disconnected:", reason);
+
       if (reason !== DisconnectReason.loggedOut) {
-        startBot(); // Re-establish if not a manual logout
+        await delay(3000);
+        startBot();
       }
     }
   });
 
-  // --- PAIRING LOGIC (Wait for socket to be ready) ---
+  // Pairing
   if (phone && !state.creds.registered) {
-    await delay(5000); // 5 second delay is vital for pairing stability
+    await delay(4000);
     try {
-      const cleanPhone = phone.replace(/[^0-9]/g, "");
-      pairCode = await sock.requestPairingCode(cleanPhone);
-      console.log(`🔑 PAIRING CODE: ${pairCode}`);
-    } catch (err) {
-      console.error("Pairing Error:", err);
+      pairCode = await sock.requestPairingCode(phone.replace(/\D/g, ""));
+      console.log("🔑 Pair Code:", pairCode);
+    } catch {
       pairCode = "FAILED";
     }
   }
 
-  // --- MESSAGE HANDLER (All Commands) ---
+  // Message handler
   sock.ev.on("messages.upsert", async ({ messages }) => {
     const msg = messages[0];
     if (!msg.message || msg.key.fromMe) return;
 
     const from = msg.key.remoteJid;
     const isGroup = from.endsWith("@g.us");
-    const body = msg.message.conversation || msg.message.extendedTextMessage?.text || msg.message.imageMessage?.caption || "";
-    const type = Object.keys(msg.message)[0];
 
-    // 1. Group Auto-Moderation
-    if (isGroup) {
-      if (settings.antilink && (body.includes("http://") || body.includes("https://"))) {
-        await sock.sendMessage(from, { delete: msg.key });
-      }
-      if (settings.antisticker && type === 'stickerMessage') {
-        await sock.sendMessage(from, { delete: msg.key });
-      }
-      if (settings.antiaudio && type === 'audioMessage') {
-        await sock.sendMessage(from, { delete: msg.key });
-      }
-    }
+    const body =
+      msg.message.conversation ||
+      msg.message.extendedTextMessage?.text ||
+      msg.message.imageMessage?.caption ||
+      "";
 
-    // 2. Command Processing
     if (!body.startsWith(".")) return;
-    const args = body.slice(1).trim().split(/ +/);
-    const command = args.shift().toLowerCase();
+
+    const [command, ...args] = body.slice(1).trim().split(" ");
 
     if (command === "menu") {
-      const status = (k) => settings[k] ? "✅" : "❌";
-      const help = `🌟 *VIRAL-BOT MENU* 🌟\n\n` +
-                   `• .mute / .unmute\n` +
-                   `• .tagall\n\n` +
-                   `*Security:* \n` +
-                   `• .antilink on/off [${status('antilink')}]\n` +
-                   `• .antisticker on/off [${status('antisticker')}]\n` +
-                   `• .antiaudio on/off [${status('antiaudio')}]`;
-      
-      await sock.sendMessage(from, { 
-        image: { url: "https://i.ibb.co/K2Zz8Y7/menu-banner.jpg" },
-        caption: help 
+      await sock.sendMessage(from, {
+        text:
+`🌟 *VIRAL BOT MENU*
+
+• .menu
+• .tagall
+• .mute / .unmute
+
+Security:
+• .antilink on/off
+• .antisticker on/off
+• .antiaudio on/off`
       });
-    }
-
-    if (command === "mute" && isGroup) {
-      await sock.groupSettingUpdate(from, "announcement");
-      await sock.sendMessage(from, { text: "🔇 *Group Muted.* Only admins can talk." });
-    }
-
-    if (command === "unmute" && isGroup) {
-      await sock.groupSettingUpdate(from, "not_announcement");
-      await sock.sendMessage(from, { text: "🔊 *Group Unmuted.* Everyone can talk." });
     }
 
     if (command === "tagall" && isGroup) {
       const meta = await sock.groupMetadata(from);
       const members = meta.participants.map(p => p.id);
-      const tags = members.map(u => `@${u.split("@")[0]}`).join(" ");
-      await sock.sendMessage(from, { text: `📢 *Attention:*\n\n${tags}`, mentions: members });
+      await sock.sendMessage(from, {
+        text: members.map(u => `@${u.split("@")[0]}`).join(" "),
+        mentions: members
+      });
+    }
+
+    if (command === "mute" && isGroup) {
+      await sock.groupSettingUpdate(from, "announcement");
+      await sock.sendMessage(from, { text: "🔇 Group muted" });
+    }
+
+    if (command === "unmute" && isGroup) {
+      await sock.groupSettingUpdate(from, "not_announcement");
+      await sock.sendMessage(from, { text: "🔊 Group unmuted" });
     }
 
     if (["antilink", "antisticker", "antiaudio"].includes(command)) {
       settings[command] = args[0] === "on";
-      await sock.sendMessage(from, { text: `✅ *${command}* is now ${args[0]}.` });
+      await sock.sendMessage(from, {
+        text: `✅ ${command} ${args[0]}`
+      });
     }
   });
 }
 
-// API Route for Frontend
+// API
 app.post("/pair", async (req, res) => {
   const { phone } = req.body;
-  if (!phone) return res.status(400).json({ error: "Phone required" });
-  
+  if (!phone) return res.json({ code: "FAILED" });
+
   pairCode = null;
   await startBot(phone);
-  
+
   let tries = 0;
-  const interval = setInterval(() => {
+  const timer = setInterval(() => {
     if (pairCode) {
-      clearInterval(interval);
+      clearInterval(timer);
       res.json({ code: pairCode });
-    } else if (tries > 25) { 
-      clearInterval(interval);
+    }
+    if (tries++ > 25) {
+      clearInterval(timer);
       res.json({ code: "FAILED" });
     }
-    tries++;
   }, 1000);
 });
 
-app.get("/", (req, res) => res.sendFile(path.join(__dirname, "index.html")));
-app.listen(3000, () => console.log("🌐 Server live on 3000"));
+app.get("/", (_, res) =>
+  res.sendFile(path.join(__dirname, "index.html"))
+);
+
+app.listen(3000, () =>
+  console.log("🌐 Server running on http://localhost:3000")
+);
