@@ -1,84 +1,99 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>WhatsApp Bot Pair</title>
-<style>
-body {
-  margin: 0;
-  height: 100vh;
-  background: linear-gradient(135deg,#25D366,#075E54);
-  font-family: Arial;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-}
-.card {
-  background: white;
-  padding: 30px;
-  width: 360px;
-  border-radius: 18px;
-  text-align: center;
-  box-shadow: 0 20px 40px rgba(0,0,0,.25);
-}
-input {
-  width: 100%;
-  padding: 14px;
-  margin-top: 15px;
-  border-radius: 8px;
-  border: 1px solid #ccc;
-}
-button {
-  width: 100%;
-  padding: 14px;
-  margin-top: 15px;
-  border: none;
-  border-radius: 8px;
-  background: #25D366;
-  color: white;
-  font-size: 16px;
-}
-#code {
-  margin-top: 20px;
-  font-size: 28px;
-  letter-spacing: 6px;
-  color: #075E54;
-}
-small {
-  color: #666;
-}
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp Bot | Link Device</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @keyframes gradient { 0% {background-position: 0% 50%;} 50% {background-position: 100% 50%;} 100% {background-position: 0% 50%;} }
+        @keyframes float { 0% {transform: translateY(0px);} 50% {transform: translateY(-10px);} 100% {transform: translateY(0px);} }
+        .bg-animate { background: linear-gradient(-45deg, #075E54, #128C7E, #25D366, #34B7F1); background-size: 400% 400%; animation: gradient 15s ease infinite; }
+        .glass { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.2); }
+        .float { animation: float 3s ease-in-out infinite; }
+    </style>
 </head>
+<body class="bg-animate min-h-screen flex items-center justify-center p-4 font-sans">
 
-<body>
-<div class="card">
-  <h2>🤖 WhatsApp Bot</h2>
-  <small>Enter phone number</small>
+    <div class="glass max-w-md w-full rounded-3xl p-8 shadow-2xl transform transition-all hover:scale-[1.01]">
+        <div class="text-center mb-8">
+            <div class="inline-block p-4 bg-green-100 rounded-full mb-4 float">
+                <i class="fab fa-whatsapp text-4xl text-green-600"></i>
+            </div>
+            <h1 class="text-3xl font-bold text-gray-800">Bot Linker</h1>
+            <p class="text-gray-500 mt-2">Connect your group manager instantly</p>
+        </div>
 
-  <input id="phone" placeholder="CountryCode + Number" />
-  <button onclick="pair()">Get Pair Code</button>
+        <div class="space-y-6">
+            <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-2">Phone Number</label>
+                <div class="relative">
+                    <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-400">
+                        <i class="fas fa-phone"></i>
+                    </span>
+                    <input id="phone" type="text" placeholder="2348100000000" 
+                        class="block w-full pl-10 pr-3 py-4 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all shadow-sm">
+                </div>
+            </div>
 
-  <div id="code"></div>
+            <button onclick="pair()" id="btn" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-4 rounded-xl shadow-lg transform transition active:scale-95 flex items-center justify-center space-x-2">
+                <span>Generate Pairing Code</span>
+                <i class="fas fa-arrow-right"></i>
+            </button>
 
-  <small>
-    WhatsApp → Linked Devices → Link with phone number
-  </small>
-</div>
+            <div id="codeContainer" class="hidden">
+                <div class="bg-gray-50 rounded-2xl p-6 text-center border-2 border-dashed border-green-200">
+                    <p class="text-xs uppercase tracking-widest text-gray-400 font-bold mb-2">Your Pairing Code</p>
+                    <div id="code" class="text-4xl font-mono font-black tracking-[0.5em] text-green-700"></div>
+                </div>
+            </div>
+        </div>
 
-<script>
-async function pair() {
-  const phone = document.getElementById("phone").value
-  document.getElementById("code").innerText = "⏳"
+        <div class="mt-10 pt-6 border-t border-gray-100">
+            <h3 class="text-sm font-bold text-gray-700 mb-3">How to connect:</h3>
+            <ul class="text-xs text-gray-500 space-y-2">
+                <li class="flex items-center"><i class="fas fa-check-circle text-green-500 mr-2"></i> Open WhatsApp on your phone</li>
+                <li class="flex items-center"><i class="fas fa-check-circle text-green-500 mr-2"></i> Go to Linked Devices > Link a Device</li>
+                <li class="flex items-center"><i class="fas fa-check-circle text-green-500 mr-2"></i> Select "Link with phone number instead"</li>
+                <li class="flex items-center"><i class="fas fa-check-circle text-green-500 mr-2"></i> Enter the 8-digit code shown above</li>
+            </ul>
+        </div>
+    </div>
 
-  const res = await fetch("/pair", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ phone })
-  })
+    <script>
+        async function pair() {
+            const phone = document.getElementById("phone").value;
+            const btn = document.getElementById("btn");
+            const codeContainer = document.getElementById("codeContainer");
+            const codeDisplay = document.getElementById("code");
 
-  const data = await res.json()
-  document.getElementById("code").innerText = data.code || "Error"
-}
-</script>
+            if(!phone) return alert("Please enter a phone number!");
+
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> <span>Requesting...</span>';
+            
+            try {
+                const res = await fetch("/pair", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ phone })
+                });
+                const data = await res.json();
+                
+                if(data.code && data.code !== "FAILED") {
+                    codeDisplay.innerText = data.code;
+                    codeContainer.classList.remove("hidden");
+                } else {
+                    alert("Failed to get code. Try again.");
+                }
+            } catch (e) {
+                alert("Server error. Ensure the bot is running.");
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<span>Generate New Code</span> <i class="fas fa-arrow-right"></i>';
+            }
+        }
+    </script>
 </body>
 </html>
