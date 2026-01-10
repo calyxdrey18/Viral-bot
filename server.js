@@ -16,29 +16,28 @@ app.use(express.json());
 app.use(express.static(__dirname));
 
 let sock;
-let pairCode = null;
-let isStarting = false;
+let state;
+let saveCreds;
+let pairingCode = null;
+let connecting = false;
 
-// Bot settings
-const settings = {
-  antilink: false,
-  antisticker: false,
-  antiaudio: false
-};
+/* ---------------- START WHATSAPP ---------------- */
+async function startWhatsApp() {
+  if (connecting) return;
+  connecting = true;
 
-async function startBot(phone) {
-  if (isStarting) return;
-  isStarting = true;
+  const auth = await useMultiFileAuthState("auth");
+  state = auth.state;
+  saveCreds = auth.saveCreds;
 
-  const { state, saveCreds } = await useMultiFileAuthState("auth");
   const { version } = await fetchLatestBaileysVersion();
 
   sock = makeWASocket({
     auth: state,
     version,
     logger: Pino({ level: "silent" }),
-    printQRInTerminal: false,
-    browser: Browsers.ubuntu("Chrome")
+    browser: Browsers.ubuntu("Chrome"),
+    printQRInTerminal: false
   });
 
   sock.ev.on("creds.update", saveCreds);
@@ -47,34 +46,23 @@ async function startBot(phone) {
     const { connection, lastDisconnect } = update;
 
     if (connection === "open") {
-      console.log("✅ WhatsApp Connected");
-      pairCode = null;
-      isStarting = false;
+      console.log("✅ WhatsApp LINKED");
+      pairingCode = null;
+      connecting = false;
     }
 
     if (connection === "close") {
-      const reason = new Boom(lastDisconnect?.error)?.output.statusCode;
+      const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
       console.log("❌ Disconnected:", reason);
 
       if (reason !== DisconnectReason.loggedOut) {
         await delay(3000);
-        startBot();
+        startWhatsApp();
       }
     }
   });
 
-  // Pairing
-  if (phone && !state.creds.registered) {
-    await delay(4000);
-    try {
-      pairCode = await sock.requestPairingCode(phone.replace(/\D/g, ""));
-      console.log("🔑 Pair Code:", pairCode);
-    } catch {
-      pairCode = "FAILED";
-    }
-  }
-
-  // Message handler
+  /* ---------------- COMMANDS ---------------- */
   sock.ev.on("messages.upsert", async ({ messages }) => {
     const msg = messages[0];
     if (!msg.message || msg.key.fromMe) return;
@@ -82,85 +70,99 @@ async function startBot(phone) {
     const from = msg.key.remoteJid;
     const isGroup = from.endsWith("@g.us");
 
-    const body =
+    const text =
       msg.message.conversation ||
       msg.message.extendedTextMessage?.text ||
       msg.message.imageMessage?.caption ||
       "";
 
-    if (!body.startsWith(".")) return;
+    if (!text.startsWith(".")) return;
 
-    const [command, ...args] = body.slice(1).trim().split(" ");
+    const cmd = text.slice(1).trim().toLowerCase();
 
-    if (command === "menu") {
-      await sock.sendMessage(from, {
+    if (cmd === "menu") {
+      return sock.sendMessage(from, {
         text:
-`🌟 *VIRAL BOT MENU*
+`🤖 *BOT COMMANDS*
 
 • .menu
-• .tagall
-• .mute / .unmute
-
-Security:
-• .antilink on/off
-• .antisticker on/off
-• .antiaudio on/off`
+• .mute   → close group
+• .unmute → open group`
       });
     }
 
-    if (command === "tagall" && isGroup) {
-      const meta = await sock.groupMetadata(from);
-      const members = meta.participants.map(p => p.id);
-      await sock.sendMessage(from, {
-        text: members.map(u => `@${u.split("@")[0]}`).join(" "),
-        mentions: members
+    if (!isGroup) {
+      return sock.sendMessage(from, {
+        text: "❌ Group-only command."
       });
     }
 
-    if (command === "mute" && isGroup) {
-      await sock.groupSettingUpdate(from, "announcement");
-      await sock.sendMessage(from, { text: "🔇 Group muted" });
+    if (cmd === "mute") {
+      try {
+        await sock.groupSettingUpdate(from, "announcement");
+        await sock.sendMessage(from, {
+          text: "🔇 *Group closed*\nOnly admins can send messages."
+        });
+      } catch {
+        await sock.sendMessage(from, {
+          text: "❌ I must be an admin."
+        });
+      }
     }
 
-    if (command === "unmute" && isGroup) {
-      await sock.groupSettingUpdate(from, "not_announcement");
-      await sock.sendMessage(from, { text: "🔊 Group unmuted" });
-    }
-
-    if (["antilink", "antisticker", "antiaudio"].includes(command)) {
-      settings[command] = args[0] === "on";
-      await sock.sendMessage(from, {
-        text: `✅ ${command} ${args[0]}`
-      });
+    if (cmd === "unmute") {
+      try {
+        await sock.groupSettingUpdate(from, "not_announcement");
+        await sock.sendMessage(from, {
+          text: "🔊 *Group opened*\nEveryone can send messages."
+        });
+      } catch {
+        await sock.sendMessage(from, {
+          text: "❌ I must be an admin."
+        });
+      }
     }
   });
 }
 
-// API
+/* ---------------- PAIR CODE ROUTE ---------------- */
 app.post("/pair", async (req, res) => {
-  const { phone } = req.body;
+  const phone = req.body.phone?.replace(/\D/g, "");
   if (!phone) return res.json({ code: "FAILED" });
 
-  pairCode = null;
-  await startBot(phone);
+  if (!sock || !state?.creds?.registered) {
+    await startWhatsApp();
+
+    // 🔑 CRITICAL WAIT (DO NOT REMOVE)
+    await delay(6000);
+
+    try {
+      pairingCode = await sock.requestPairingCode(phone);
+      console.log("🔑 PAIR CODE:", pairingCode);
+    } catch (err) {
+      console.error("Pair error:", err);
+      return res.json({ code: "FAILED" });
+    }
+  }
 
   let tries = 0;
   const timer = setInterval(() => {
-    if (pairCode) {
+    if (pairingCode) {
       clearInterval(timer);
-      res.json({ code: pairCode });
+      res.json({ code: pairingCode });
     }
-    if (tries++ > 25) {
+    if (++tries > 20) {
       clearInterval(timer);
       res.json({ code: "FAILED" });
     }
   }, 1000);
 });
 
+/* ---------------- SERVER ---------------- */
 app.get("/", (_, res) =>
   res.sendFile(path.join(__dirname, "index.html"))
 );
 
 app.listen(3000, () =>
-  console.log("🌐 Server running on http://localhost:3000")
+  console.log("🌐 http://localhost:3000")
 );
