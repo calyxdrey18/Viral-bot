@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>WhatsApp Bot Pair</title>
+<style>
+body {
+  margin: 0;
+  height: 100vh;
+  background: linear-gradient(135deg,#25D366,#075E54);
+  font-family: Arial;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+.card {
+  background: white;
+  padding: 30px;
+  width: 360px;
+  border-radius: 18px;
+  text-align: center;
+  box-shadow: 0 20px 40px rgba(0,0,0,.25);
+}
+input {
+  width: 100%;
+  padding: 14px;
+  margin-top: 15px;
+  border-radius: 8px;
+  border: 1px solid #ccc;
+}
+button {
+  width: 100%;
+  padding: 14px;
+  margin-top: 15px;
+  border: none;
+  border-radius: 8px;
+  background: #25D366;
+  color: white;
+  font-size: 16px;
+}
+#code {
+  margin-top: 20px;
+  font-size: 28px;
+  letter-spacing: 6px;
+  color: #075E54;
+}
+small {
+  color: #666;
+}
+</style>
+</head>
+
+<body>
+<div class="card">
+  <h2>🤖 WhatsApp Bot</h2>
+  <small>Enter phone number</small>
+
+  <input id="phone" placeholder="CountryCode + Number" />
+  <button onclick="pair()">Get Pair Code</button>
+
+  <div id="code"></div>
+
+  <small>
+    WhatsApp → Linked Devices → Link with phone number
+  </small>
+</div>
+
+<script>
+async function pair() {
+  const phone = document.getElementById("phone").value
+  document.getElementById("code").innerText = "⏳"
+
+  const res = await fetch("/pair", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ phone })
+  })
+
+  const data = await res.json()
+  document.getElementById("code").innerText = data.code || "Error"
+}
+</script>
+</body>
+</html>
