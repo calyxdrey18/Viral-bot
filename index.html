@@ -3,96 +3,89 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WhatsApp Bot | Link Device</title>
+    <title>Viral-Bot Linker</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
-        @keyframes gradient { 0% {background-position: 0% 50%;} 50% {background-position: 100% 50%;} 100% {background-position: 0% 50%;} }
-        @keyframes float { 0% {transform: translateY(0px);} 50% {transform: translateY(-10px);} 100% {transform: translateY(0px);} }
-        .bg-animate { background: linear-gradient(-45deg, #075E54, #128C7E, #25D366, #34B7F1); background-size: 400% 400%; animation: gradient 15s ease infinite; }
-        .glass { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.2); }
-        .float { animation: float 3s ease-in-out infinite; }
+        body { background: linear-gradient(45deg, #075E54, #128C7E, #25D366); min-height: 100vh; display: flex; align-items: center; justify-content: center; font-family: sans-serif; }
+        .glass { background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(10px); border-radius: 24px; box-shadow: 0 15px 35px rgba(0,0,0,0.2); }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-pop { animation: fadeIn 0.5s ease-out; }
+        .code-box { letter-spacing: 8px; font-family: 'Courier New', monospace; background: #f3f4f6; border: 2px dashed #25D366; }
     </style>
 </head>
-<body class="bg-animate min-h-screen flex items-center justify-center p-4 font-sans">
-
-    <div class="glass max-w-md w-full rounded-3xl p-8 shadow-2xl transform transition-all hover:scale-[1.01]">
-        <div class="text-center mb-8">
-            <div class="inline-block p-4 bg-green-100 rounded-full mb-4 float">
-                <i class="fab fa-whatsapp text-4xl text-green-600"></i>
+<body>
+    <div class="glass p-8 w-full max-w-md mx-4 animate-pop">
+        <div class="text-center mb-6">
+            <div class="bg-green-500 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg">
+                <i class="fab fa-whatsapp text-3xl text-white"></i>
             </div>
-            <h1 class="text-3xl font-bold text-gray-800">Bot Linker</h1>
-            <p class="text-gray-500 mt-2">Connect your group manager instantly</p>
+            <h1 class="text-2xl font-bold text-gray-800">Viral-Bot Mini</h1>
+            <p class="text-gray-500 text-sm">Link your device via phone number</p>
         </div>
 
-        <div class="space-y-6">
-            <div>
-                <label class="block text-sm font-semibold text-gray-700 mb-2">Phone Number</label>
-                <div class="relative">
-                    <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-400">
-                        <i class="fas fa-phone"></i>
-                    </span>
-                    <input id="phone" type="text" placeholder="2348100000000" 
-                        class="block w-full pl-10 pr-3 py-4 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all shadow-sm">
-                </div>
-            </div>
-
-            <button onclick="pair()" id="btn" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-4 rounded-xl shadow-lg transform transition active:scale-95 flex items-center justify-center space-x-2">
-                <span>Generate Pairing Code</span>
-                <i class="fas fa-arrow-right"></i>
+        <div class="space-y-4">
+            <input id="phone" type="text" placeholder="e.g. 2348100000000" class="w-full p-4 border rounded-xl outline-none focus:ring-2 focus:ring-green-500 transition-all">
+            <button onclick="getPair()" id="mainBtn" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-4 rounded-xl shadow-md transition-all active:scale-95">
+                GET PAIRING CODE
             </button>
-
-            <div id="codeContainer" class="hidden">
-                <div class="bg-gray-50 rounded-2xl p-6 text-center border-2 border-dashed border-green-200">
-                    <p class="text-xs uppercase tracking-widest text-gray-400 font-bold mb-2">Your Pairing Code</p>
-                    <div id="code" class="text-4xl font-mono font-black tracking-[0.5em] text-green-700"></div>
-                </div>
-            </div>
         </div>
 
-        <div class="mt-10 pt-6 border-t border-gray-100">
-            <h3 class="text-sm font-bold text-gray-700 mb-3">How to connect:</h3>
-            <ul class="text-xs text-gray-500 space-y-2">
-                <li class="flex items-center"><i class="fas fa-check-circle text-green-500 mr-2"></i> Open WhatsApp on your phone</li>
-                <li class="flex items-center"><i class="fas fa-check-circle text-green-500 mr-2"></i> Go to Linked Devices > Link a Device</li>
-                <li class="flex items-center"><i class="fas fa-check-circle text-green-500 mr-2"></i> Select "Link with phone number instead"</li>
-                <li class="flex items-center"><i class="fas fa-check-circle text-green-500 mr-2"></i> Enter the 8-digit code shown above</li>
-            </ul>
+        <div id="resultArea" class="hidden mt-8 space-y-4">
+            <div class="text-center">
+                <p class="text-xs font-bold text-gray-400 uppercase">Your Code (Auto-Copied)</p>
+                <div id="codeDisplay" class="code-box text-3xl font-black text-green-700 p-4 rounded-lg mt-2 cursor-pointer" onclick="copyAgain()"></div>
+            </div>
+            <div class="bg-blue-50 p-4 rounded-lg border border-blue-100">
+                <p class="text-xs text-blue-800">
+                    <strong>Step:</strong> WhatsApp > Linked Devices > Link Device > Link with Phone Number.
+                </p>
+            </div>
         </div>
     </div>
 
     <script>
-        async function pair() {
-            const phone = document.getElementById("phone").value;
-            const btn = document.getElementById("btn");
-            const codeContainer = document.getElementById("codeContainer");
-            const codeDisplay = document.getElementById("code");
+        async function getPair() {
+            const phone = document.getElementById('phone').value;
+            const btn = document.getElementById('mainBtn');
+            const result = document.getElementById('resultArea');
+            const codeBox = document.getElementById('codeDisplay');
 
-            if(!phone) return alert("Please enter a phone number!");
+            if (!phone) return alert("Enter phone number!");
 
             btn.disabled = true;
-            btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> <span>Requesting...</span>';
-            
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> GENERATING...';
+
             try {
-                const res = await fetch("/pair", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
+                const res = await fetch('/pair', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ phone })
                 });
                 const data = await res.json();
-                
-                if(data.code && data.code !== "FAILED") {
-                    codeDisplay.innerText = data.code;
-                    codeContainer.classList.remove("hidden");
+
+                if (data.code && data.code !== "FAILED") {
+                    codeBox.innerText = data.code;
+                    result.classList.remove('hidden');
+                    
+                    // AUTOMATIC COPY TO CLIPBOARD
+                    navigator.clipboard.writeText(data.code);
+                    alert("Code Generated & Copied to Clipboard!");
                 } else {
-                    alert("Failed to get code. Try again.");
+                    alert("Error: Check phone number format.");
                 }
             } catch (e) {
-                alert("Server error. Ensure the bot is running.");
+                alert("Server Error");
             } finally {
                 btn.disabled = false;
-                btn.innerHTML = '<span>Generate New Code</span> <i class="fas fa-arrow-right"></i>';
+                btn.innerText = 'GET NEW CODE';
             }
+        }
+
+        function copyAgain() {
+            const code = document.getElementById('codeDisplay').innerText;
+            navigator.clipboard.writeText(code);
+            alert("Copied!");
         }
     </script>
 </body>
