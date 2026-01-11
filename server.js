@@ -1,8 +1,7 @@
-// server.js
-// Minimal WhatsApp bot with pairing code + .ping command
-// Designed for Render deployment (Web Service)
+// server.js - Fixed version with proper pairing code timing + static frontend serving
 
 const express = require('express');
+const path = require('path');
 const fs = require('fs/promises');
 const {
   default: makeWASocket,
@@ -16,50 +15,35 @@ const pino = require('pino');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Serve static files (put index.html in the same folder as server.js or in /public)
+app.use(express.static(path.join(__dirname)));
 app.use(express.json());
 
-// ── Simple root route so "Cannot GET /" disappears ───────────────────────
+// Root → serve the nice frontend
 app.get('/', (req, res) => {
-  res.type('text/html').send(`
-    <h2>WhatsApp Pairing Bot</h2>
-    <p>Status: <strong>running</strong></p>
-    <p>Use POST <code>/pair</code> with JSON body:</p>
-    <pre>
-{
-  "phone": "234xxxxxxxxxx"
-}
-    </pre>
-    <p><a href="/health">Check health</a></p>
-    <small>Render • ${new Date().toISOString()}</small>
-  `);
+  res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// Health check – Render likes this
+// Simple health check for Render
 app.get('/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    uptime: Math.floor(process.uptime()),
-    timestamp: new Date().toISOString()
-  });
+  res.json({ status: 'ok', uptime: process.uptime() });
 });
 
-// ── Bot state ─────────────────────────────────────────────────────────────
+// Global state
 let sock = null;
 let isConnecting = false;
-let currentPairingCode = null;
-let currentPairPhone = null;
+let pairingCode = null;
+let pairingPhone = null;
 
-// ── Core connection logic ─────────────────────────────────────────────────
-async function startWhatsAppConnection(phone = null) {
+// ── Core WhatsApp connection logic ──────────────────────────────────────
+async function connectWhatsApp(requestedPhone = null) {
   if (isConnecting) return;
   isConnecting = true;
+  pairingCode = null;
 
-  console.log(phone
-    ? `→ Starting new pairing session for ${phone}`
-    : '→ Attempting to restore previous session');
+  console.log(requestedPhone ? `→ Pairing request for ${requestedPhone}` : '→ Restoring session...');
 
   try {
-    // Make sure auth directory exists
     await fs.mkdir('./auth', { recursive: true }).catch(() => {});
 
     const { state, saveCreds } = await useMultiFileAuthState('./auth');
@@ -70,151 +54,140 @@ async function startWhatsAppConnection(phone = null) {
       auth: state,
       logger: pino({ level: 'silent' }),
       printQRInTerminal: false,
-      browser: ['WhatsApp Bot', 'Chrome', '126.0'],
+      browser: ['WhatsApp', 'Chrome', '130.0'], // Important: realistic browser helps pairing
       syncFullHistory: false,
       markOnlineOnConnect: true,
-      shouldSyncHistoryMessage: () => false
+      shouldSyncHistoryMessage: () => false,
+      defaultQueryTimeoutMs: 60000
     });
 
     sock.ev.on('creds.update', saveCreds);
 
+    // Wait for connection to be ready before generating pairing code
     sock.ev.on('connection.update', async (update) => {
-      const { connection, lastDisconnect } = update;
+      const { connection, lastDisconnect, qr } = update;
 
       if (connection === 'open') {
-        console.log('✓ Successfully connected to WhatsApp');
+        console.log('✓ WhatsApp CONNECTED');
         isConnecting = false;
-        currentPairingCode = null;
-        currentPairPhone = null;
+        pairingCode = null;
+        pairingPhone = null;
 
-        // Optional: send welcome message to self
         try {
-          const selfJid = sock.user.id.replace(/:\d+/, '@s.whatsapp.net');
-          await sock.sendMessage(selfJid, { text: 'Bot online ✓' });
+          const self = sock.user.id.replace(/:\d+/, '@s.whatsapp.net');
+          await sock.sendMessage(self, { text: 'Bot is now online ✓' });
         } catch {}
       }
 
       if (connection === 'close') {
-        const statusCode = lastDisconnect?.error?.output?.statusCode;
-        console.log(`Connection closed (code: ${statusCode || 'unknown'})`);
+        const code = lastDisconnect?.error?.output?.statusCode;
+        console.log(`Disconnected → code: ${code || 'unknown'}`);
 
-        if (statusCode === DisconnectReason.loggedOut) {
-          console.log('Logged out → clearing credentials');
+        if (code === DisconnectReason.loggedOut) {
+          console.log('Logged out → clearing auth');
           await fs.rm('./auth', { recursive: true, force: true }).catch(() => {});
-        } else if (statusCode !== DisconnectReason.connectionClosed) {
-          console.log('Will try to reconnect in 10 seconds...');
+        } else if (code !== DisconnectReason.connectionClosed) {
           setTimeout(() => {
             isConnecting = false;
-            startWhatsAppConnection();
-          }, 10000);
+            connectWhatsApp();
+          }, 12000);
         }
         isConnecting = false;
       }
+
+      // Critical: wait for socket to be ready (connecting/qr event) before pairing
+      if ((connection === 'connecting' || qr) && requestedPhone && !state.creds.registered) {
+        console.log('Socket ready → generating pairing code...');
+        await delay(2000); // small safety delay
+
+        try {
+          pairingCode = await sock.requestPairingCode(requestedPhone);
+          pairingPhone = requestedPhone;
+          console.log(`Pairing code generated: ${pairingCode}`);
+        } catch (err) {
+          console.error('Pairing code FAILED:', err.message);
+          pairingCode = 'ERROR';
+        }
+      }
     });
 
-    // ── Only generate pairing code when explicitly requested ──────────────
-    if (phone && !state.creds.registered) {
-      console.log(`Generating pairing code for ${phone}...`);
-      await delay(4500); // give socket time to initialize
-
-      try {
-        const code = await sock.requestPairingCode(phone);
-        currentPairingCode = code;
-        currentPairPhone = phone;
-        console.log(`Pairing code created: ${code}`);
-      } catch (err) {
-        console.error('Pairing code generation failed:', err.message);
-        currentPairingCode = 'ERROR';
-      }
-    }
-
-    // ── Minimal command handler ── only .ping ─────────────────────────────
+    // Minimal .ping command
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
       if (type !== 'notify') return;
-
       const msg = messages[0];
       if (!msg.message || msg.key.fromMe) return;
 
-      const text = (
-        msg.message.conversation ||
-        msg.message.extendedTextMessage?.text ||
-        ''
-      ).trim().toLowerCase();
+      const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || '').trim().toLowerCase();
 
       if (text === '.ping') {
-        try {
-          await sock.sendMessage(msg.key.remoteJid, {
-            text: `Pong! ${Math.floor(process.uptime())}s`
-          });
-        } catch (e) {
-          console.error('Could not send pong:', e.message);
-        }
+        await sock.sendMessage(msg.key.remoteJid, {
+          text: `Pong! Uptime: ${Math.floor(process.uptime())}s`
+        }).catch(() => {});
       }
     });
 
   } catch (err) {
-    console.error('Critical connection error:', err.message);
+    console.error('Critical error:', err.message);
     isConnecting = false;
-    currentPairingCode = 'ERROR';
+    pairingCode = 'ERROR';
   }
 }
 
-// ── Pairing endpoint ──────────────────────────────────────────────────────
+// ── Pair endpoint (called from frontend) ────────────────────────────────
 app.post('/pair', async (req, res) => {
-  const phone = String(req.body?.phone || '').replace(/[^0-9]/g, '');
+  let phone = String(req.body?.phone || '').replace(/[^0-9]/g, '');
 
   if (!phone || phone.length < 10) {
-    return res.status(400).json({
-      error: 'Invalid phone number. Use international format without + (e.g. 2348012345678)'
-    });
+    return res.status(400).json({ error: 'Invalid phone number (use format: 234xxxxxxxxxx)' });
   }
 
-  currentPairingCode = null;
-  currentPairPhone = null;
+  // Normalize phone format (Baileys expects no +)
+  if (phone.startsWith('0')) phone = '234' + phone.slice(1); // common Nigeria fix
 
-  await startWhatsAppConnection(phone);
+  pairingCode = null;
+  pairingPhone = null;
 
-  // Wait for pairing code (max ~30 seconds)
-  let attempts = 0;
-  const interval = setInterval(() => {
-    attempts++;
+  await connectWhatsApp(phone);
 
-    if (currentPairingCode) {
-      clearInterval(interval);
+  // Wait for code (max 35 seconds)
+  let tries = 0;
+  const check = setInterval(() => {
+    tries++;
 
-      if (currentPairingCode === 'ERROR') {
-        return res.status(500).json({ error: 'Failed to generate pairing code' });
+    if (pairingCode) {
+      clearInterval(check);
+
+      if (pairingCode === 'ERROR') {
+        return res.status(500).json({ error: 'Failed to generate code - try again later' });
       }
 
       return res.json({
         success: true,
-        pairing_code: currentPairingCode,
-        phone: currentPairPhone,
-        instruction: 'WhatsApp → Settings → Linked Devices → Link with phone number'
+        code: pairingCode,
+        phone: pairingPhone
       });
     }
 
-    if (attempts >= 30) {
-      clearInterval(interval);
-      res.status(504).json({ error: 'Timeout waiting for pairing code' });
+    if (tries >= 35) {
+      clearInterval(check);
+      res.status(504).json({ error: 'Timeout generating pairing code' });
     }
   }, 1000);
 });
 
-// ── Start everything ──────────────────────────────────────────────────────
+// Start server + try auto-restore session
 app.listen(PORT, '0.0.0.0', async () => {
-  console.log(`Server listening on port ${PORT}`);
+  console.log(`Server running → http://localhost:${PORT}`);
 
-  // Try to restore previous session if exists
   try {
-    const hasCreds = await fs.stat('./auth/creds.json').catch(() => false);
-    if (hasCreds) {
-      console.log('Found previous session → auto connecting...');
-      await startWhatsAppConnection();
+    const hasSession = await fs.stat('./auth/creds.json').catch(() => false);
+    if (hasSession) {
+      console.log('Previous session found → connecting...');
+      await connectWhatsApp();
     } else {
-      console.log('No previous session. Use POST /pair to connect.');
+      console.log('No session → waiting for /pair request');
     }
-  } catch (err) {
-    console.error('Startup check failed:', err.message);
+  } catch (e) {
+    console.error('Startup error:', e.message);
   }
 });
