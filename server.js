@@ -1,529 +1,374 @@
 const express = require("express");
 const path = require("path");
-const fs = require("fs");
-const { spawn } = require("child_process");
+const fs = require("fs").promises;
+const {
+  default: makeWASocket,
+  useMultiFileAuthState,
+  fetchLatestBaileysVersion,
+  Browsers,
+  DisconnectReason,
+  delay
+} = require("@whiskeysockets/baileys");
+const pino = require("pino");
+const { Boom } = require("@hapi/boom");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
-app.use(express.static(__dirname));
+app.use(express.static(path.join(__dirname, "public"))); // ← put your frontend files in /public folder
 
-// Bot state
-let botStatus = {
-  isActive: false,
+// ── Bot State ───────────────────────────────────────────────
+const botStatus = {
+  isActive: true,
   isWhatsAppConnected: false,
   pairingCode: null,
-  qrCode: null,
+  connectedPhone: null,
   lastUpdate: new Date().toISOString(),
-  uptime: 0,
-  connectedPhone: null
+  uptime: 0
 };
 
-// WhatsApp variables
 let sock = null;
-let pairingCode = null;
 let connecting = false;
 
-// Create necessary directories
-function ensureDirectories() {
-  if (!fs.existsSync("auth")) {
-    fs.mkdirSync("auth", { recursive: true });
-  }
-  if (!fs.existsSync("temp")) {
-    fs.mkdirSync("temp", { recursive: true });
-  }
-}
+// In-memory group settings (reset on restart - normal for Render free tier)
+const groupSettings = new Map(); // groupJid → { antilink: bool, antisticker: bool, antiaudio: bool }
 
-// Install WhatsApp dependencies if missing
-async function ensureDependencies() {
+// Ensure auth folder exists
+async function ensureDirectories() {
   try {
-    require("@whiskeysockets/baileys");
-    require("pino");
-    require("@hapi/boom");
-    console.log("✅ WhatsApp dependencies found");
-    return true;
+    await fs.mkdir("auth", { recursive: true });
   } catch (err) {
-    console.log("📦 Installing WhatsApp dependencies...");
-    
-    return new Promise((resolve, reject) => {
-      const npm = spawn('npm', ['install', '@whiskeysockets/baileys', 'pino', '@hapi/boom', '--no-save'], {
-        stdio: 'inherit',
-        shell: true
-      });
-      
-      npm.on('close', (code) => {
-        if (code === 0) {
-          console.log("✅ Dependencies installed successfully");
-          resolve(true);
-        } else {
-          console.error("❌ Failed to install dependencies");
-          resolve(false);
-        }
-      });
-      
-      npm.on('error', (err) => {
-        console.error("❌ Error installing dependencies:", err);
-        resolve(false);
-      });
-    });
+    console.error("Failed to create auth directory:", err);
   }
 }
 
-// Start WhatsApp connection
-async function startWhatsApp(phone = null) {
-  if (connecting) {
-    console.log("⚠️ WhatsApp connection already in progress...");
-    return;
-  }
-  
+// ── WhatsApp Connection Logic ───────────────────────────────
+async function startWhatsApp(requestedPhone = null) {
+  if (connecting) return;
   connecting = true;
-  console.log(phone ? `🔗 Starting WhatsApp for phone: ${phone}` : "🔄 Starting WhatsApp connection...");
-  
+
+  console.log(requestedPhone
+    ? `Starting WhatsApp connection for ${requestedPhone}`
+    : "Starting WhatsApp connection...");
+
   try {
-    // Ensure dependencies are installed
-    const depsInstalled = await ensureDependencies();
-    if (!depsInstalled) {
-      throw new Error("Failed to install WhatsApp dependencies");
-    }
-    
-    // Dynamically import after installation
-    const { 
-      default: makeWASocket, 
-      useMultiFileAuthState, 
-      fetchLatestBaileysVersion, 
-      Browsers,
-      DisconnectReason,
-      delay 
-    } = require("@whiskeysockets/baileys");
-    const Pino = require("pino");
-    const { Boom } = require("@hapi/boom");
-    
-    ensureDirectories();
-    
+    await ensureDirectories();
+
     const { state, saveCreds } = await useMultiFileAuthState("auth");
     const { version } = await fetchLatestBaileysVersion();
-    
+
     sock = makeWASocket({
-      auth: state,
       version,
-      logger: Pino({ level: "silent" }),
+      auth: state,
+      logger: pino({ level: "silent" }),
       browser: Browsers.ubuntu("Chrome"),
       printQRInTerminal: false,
       syncFullHistory: false,
       markOnlineOnConnect: true,
       emitOwnEvents: false,
-      defaultQueryTimeoutMs: 60000
+      defaultQueryTimeoutMs: 60000,
+      shouldSyncHistoryMessage: () => false
     });
-    
+
     sock.ev.on("creds.update", saveCreds);
-    
+
     sock.ev.on("connection.update", async (update) => {
       const { connection, lastDisconnect, qr } = update;
-      
+
       if (qr) {
-        console.log("📱 QR Code received (not displayed in web)");
-        botStatus.qrCode = qr;
+        console.log("[QR] QR received (sent to frontend only)");
+        botStatus.qrCode = qr; // optional - if you want to show QR too
       }
-      
+
       if (connection === "open") {
-        console.log("✅ WhatsApp CONNECTED AND ACTIVE");
+        console.log("✅ WHATSAPP CONNECTED");
         botStatus.isWhatsAppConnected = true;
+        botStatus.pairingCode = null;
         connecting = false;
-        pairingCode = null;
-        
+
         try {
-          const botId = sock.user.id.split(":")[0] + "@s.whatsapp.net";
-          await sock.sendMessage(botId, { 
-            text: "✅ *VIRAL-BOT IS ONLINE*\n\nCommands are now active. Type *.menu* in any chat to begin.\n\nMade with ❤️ by Viral-Bot Team" 
+          const botJid = sock.user.id.replace(/:\d+/, "@s.whatsapp.net");
+          await sock.sendMessage(botJid, {
+            text: "✅ *VIRAL-BOT IS ONLINE*\n\nType *.menu* to see commands!\nMade with ❤️"
           });
-          console.log("📤 Startup message sent to bot");
-        } catch (err) {
-          console.log("⚠️ Could not send startup message:", err.message);
-        }
+        } catch {}
       }
-      
+
       if (connection === "close") {
         botStatus.isWhatsAppConnected = false;
-        const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
-        console.log(`🔌 Connection closed, reason: ${reason}`);
-        
-        if (reason === DisconnectReason.loggedOut) {
-          console.log("🚪 Logged out, clearing auth...");
-          fs.rmSync("auth", { recursive: true, force: true });
-          ensureDirectories();
-        } else if (reason !== DisconnectReason.connectionClosed) {
-          console.log("🔄 Reconnecting in 5 seconds...");
-          connecting = false;
-          setTimeout(() => startWhatsApp(), 5000);
+        const statusCode = new Boom(lastDisconnect?.error)?.output?.statusCode;
+
+        console.log(`Connection closed - reason: ${statusCode}`);
+
+        if (statusCode === DisconnectReason.loggedOut) {
+          console.log("Logged out → deleting auth session");
+          await fs.rm("auth", { recursive: true, force: true }).catch(() => {});
+          await ensureDirectories();
+        } else if (statusCode !== DisconnectReason.connectionClosed) {
+          console.log("Reconnecting in 10 seconds...");
+          setTimeout(() => {
+            connecting = false;
+            startWhatsApp();
+          }, 10000);
         } else {
           connecting = false;
         }
       }
     });
-    
-    // Message handler
+
+    // ── Message Handler ─────────────────────────────────────
     sock.ev.on("messages.upsert", async ({ messages, type }) => {
       if (type !== "notify") return;
-      
+
       const msg = messages[0];
       if (!msg.message || msg.key.fromMe) return;
-      
+
       const from = msg.key.remoteJid;
       const isGroup = from.endsWith("@g.us");
-      const body = msg.message.conversation || 
-                   msg.message.extendedTextMessage?.text || 
-                   msg.message.imageMessage?.caption ||
-                   msg.message.videoMessage?.caption ||
-                   "";
-      
-      const typeMsg = Object.keys(msg.message)[0];
-      
-      // Auto-moderation settings
-      const settings = {
-        antilink: false,
-        antisticker: false,
-        antiaudio: false
-      };
-      
-      // Auto-moderation for groups
+
+      let body = (
+        msg.message.conversation ||
+        msg.message.extendedTextMessage?.text ||
+        msg.message.imageMessage?.caption ||
+        msg.message.videoMessage?.caption ||
+        ""
+      ).trim();
+
+      const msgType = Object.keys(msg.message)[0];
+
+      // Get / create group settings
+      if (!groupSettings.has(from)) {
+        groupSettings.set(from, { antilink: false, antisticker: false, antiaudio: false });
+      }
+      const settings = groupSettings.get(from);
+
+      // Auto moderation (only groups)
       if (isGroup) {
         try {
-          if (settings.antilink && (body.includes("http://") || body.includes("https://") || body.includes("www."))) {
+          if (settings.antilink && /https?:\/\/|www\./i.test(body)) {
             await sock.sendMessage(from, { delete: msg.key });
-            await sock.sendMessage(from, { text: `⚠️ *Link removed*\nLinks are not allowed in this group.` });
+            await sock.sendMessage(from, { text: "⚠️ Link removed - not allowed here" });
             return;
           }
-          
-          if (settings.antisticker && typeMsg === 'stickerMessage') {
+
+          if (settings.antisticker && msgType === "stickerMessage") {
             await sock.sendMessage(from, { delete: msg.key });
-            await sock.sendMessage(from, { text: `⚠️ *Sticker removed*\nStickers are not allowed in this group.` });
+            await sock.sendMessage(from, { text: "⚠️ Sticker removed - not allowed" });
             return;
           }
-          
-          if (settings.antiaudio && typeMsg === 'audioMessage') {
+
+          if (settings.antiaudio && msgType === "audioMessage") {
             await sock.sendMessage(from, { delete: msg.key });
-            await sock.sendMessage(from, { text: `⚠️ *Audio removed*\nAudio messages are not allowed in this group.` });
+            await sock.sendMessage(from, { text: "⚠️ Voice note removed - not allowed" });
             return;
           }
-        } catch (err) {
-          console.log("⚠️ Error in auto-moderation:", err.message);
+        } catch (e) {
+          console.error("Auto-mod error:", e.message);
         }
       }
-      
+
       if (!body.startsWith(".")) return;
-      
+
       const args = body.slice(1).trim().split(/ +/);
-      const cmd = args.shift().toLowerCase();
-      console.log(`Command received: .${cmd} from ${from}`);
-      
+      const cmd = args.shift()?.toLowerCase();
+
+      console.log(`Command: .${cmd} from ${from}`);
+
       try {
-        // MENU COMMAND
-        if (cmd === "menu") {
-          const help = `🌟 *VIRAL-BOT MENU* 🌟\n\n*Admin Commands:*\n• .mute - Mute group\n• .unmute - Unmute group\n• .tagall - Mention all members\n\n*Auto-Moderation:*\n• .antilink [on/off]\n• .antisticker [on/off]\n• .antiaudio [on/off]\n\n*Info:*\n• .ping - Check bot status\n• .owner - Contact owner`;
-          await sock.sendMessage(from, { text: help });
-        }
-        
-        // PING COMMAND
-        if (cmd === "ping") {
-          await sock.sendMessage(from, { text: `🏓 *PONG!*\nBot is active and responding!\nUptime: ${process.uptime().toFixed(0)}s` });
-        }
-        
-        // OWNER COMMAND
-        if (cmd === "owner") {
-          await sock.sendMessage(from, { text: `👑 *Owner Contact:*\nContact the bot owner for support or inquiries.` });
-        }
-        
-        // TAGALL COMMAND
-        if (cmd === "tagall" && isGroup) {
-          try {
-            const meta = await sock.groupMetadata(from);
-            const tags = meta.participants.map(p => p.id);
-            const msgText = `📢 *Attention All Members!*\n\n` + tags.map(t => `@${t.split("@")[0]}`).join(" ");
-            await sock.sendMessage(from, { text: msgText, mentions: tags });
-          } catch (err) {
-            await sock.sendMessage(from, { text: "❌ Error: I need to be a participant in this group." });
-          }
-        }
-        
-        // MUTE/UNMUTE COMMANDS
-        if ((cmd === "mute" || cmd === "unmute") && isGroup) {
-          try {
-            const isAnnouncement = cmd === "mute";
-            await sock.groupSettingUpdate(from, isAnnouncement ? "announcement" : "not_announcement");
-            await sock.sendMessage(from, { text: `🔇 *Group ${cmd === 'mute' ? 'Muted' : 'Unmuted'}*\nOnly admins can send messages now.` });
-          } catch (err) {
-            await sock.sendMessage(from, { text: "❌ Error: I need Admin rights to perform this action." });
-          }
-        }
-        
-        // AUTO-MODERATION SETTINGS
-        if (["antilink", "antisticker", "antiaudio"].includes(cmd)) {
-          if (args.length === 0) {
-            const status = settings[cmd] ? "ON ✅" : "OFF ❌";
-            await sock.sendMessage(from, { text: `📊 *${cmd}* status: ${status}` });
-          } else if (args[0] === "on" || args[0] === "off") {
-            settings[cmd] = args[0] === "on";
-            await sock.sendMessage(from, { text: `✅ *${cmd}* is now ${args[0] === 'on' ? 'ENABLED' : 'DISABLED'}.` });
-          } else {
-            await sock.sendMessage(from, { text: `❌ Usage: .${cmd} [on/off]` });
-          }
+        switch (cmd) {
+          case "menu":
+            await sock.sendMessage(from, {
+              text: `🌟 *VIRAL-BOT MENU*\n\n` +
+                    `*Group Admin:*\n• .mute / .unmute\n• .tagall\n\n` +
+                    `*Moderation:*\n• .antilink [on/off]\n• .antisticker [on/off]\n• .antiaudio [on/off]\n\n` +
+                    `*Others:*\n• .ping\n• .owner`
+            });
+            break;
+
+          case "ping":
+            await sock.sendMessage(from, {
+              text: `🏓 PONG!\nUptime: ${Math.floor(process.uptime())}s`
+            });
+            break;
+
+          case "owner":
+            await sock.sendMessage(from, { text: "👑 Contact owner: (put your contact here)" });
+            break;
+
+          case "tagall":
+            if (!isGroup) return;
+            try {
+              const meta = await sock.groupMetadata(from);
+              const mentions = meta.participants.map(p => p.id);
+              const text = `📢 *Attention Everyone!*\n\n${mentions.map(m => `@${m.split("@")[0]}`).join(" ")}`;
+              await sock.sendMessage(from, { text, mentions });
+            } catch (e) {
+              await sock.sendMessage(from, { text: "❌ I need to be admin in this group" });
+            }
+            break;
+
+          case "mute":
+          case "unmute":
+            if (!isGroup) return;
+            try {
+              await sock.groupSettingUpdate(from, cmd === "mute" ? "announcement" : "not_announcement");
+              await sock.sendMessage(from, {
+                text: `🔇 Group ${cmd === "mute" ? "MUTED" : "UNMUTED"}`
+              });
+            } catch {
+              await sock.sendMessage(from, { text: "❌ Bot needs admin rights!" });
+            }
+            break;
+
+          case "antilink":
+          case "antisticker":
+          case "antiaudio":
+            if (args.length === 0) {
+              const status = settings[cmd] ? "ON ✅" : "OFF ❌";
+              await sock.sendMessage(from, { text: `${cmd} is currently ${status}` });
+            } else if (["on", "off"].includes(args[0]?.toLowerCase())) {
+              settings[cmd] = args[0].toLowerCase() === "on";
+              await sock.sendMessage(from, {
+                text: `${cmd} turned ${settings[cmd] ? "ON" : "OFF"}`
+              });
+            } else {
+              await sock.sendMessage(from, { text: `Usage: .${cmd} [on/off]` });
+            }
+            break;
+
+          default:
+            // unknown command → optional: reply or ignore
         }
       } catch (err) {
-        console.log("❌ Error processing command:", err.message);
-        await sock.sendMessage(from, { text: "❌ Error processing command. Please try again." });
+        console.error("Command error:", err.message);
+        await sock.sendMessage(from, { text: "❌ Error processing command" }).catch(() => {});
       }
     });
-    
-    // Request pairing code if phone provided
-    if (phone && sock && !sock.authState?.creds?.registered) {
-      console.log(`📱 Requesting pairing code for: ${phone}`);
-      await delay(3000);
-      
+
+    // Pairing code request (only if not registered yet)
+    if (requestedPhone && !state.creds.registered) {
+      console.log(`Requesting pairing code for ${requestedPhone}...`);
+      await delay(4000);
       try {
-        pairingCode = await sock.requestPairingCode(phone);
-        botStatus.pairingCode = pairingCode;
-        botStatus.connectedPhone = phone;
-        console.log(`✅ Pairing code generated: ${pairingCode}`);
-      } catch (err) {
-        console.log("❌ Error generating pairing code:", err.message);
-        pairingCode = "FAILED";
+        const code = await sock.requestPairingCode(requestedPhone);
+        botStatus.pairingCode = code;
+        botStatus.connectedPhone = requestedPhone;
+        console.log(`Pairing code: ${code}`);
+      } catch (e) {
+        console.error("Pairing code failed:", e.message);
         botStatus.pairingCode = "FAILED";
       }
-    } else if (phone && sock.authState?.creds?.registered) {
-      console.log("ℹ️ Already registered with WhatsApp");
-      pairingCode = "ALREADY_REGISTERED";
-      botStatus.pairingCode = "ALREADY_REGISTERED";
     }
-    
+
   } catch (err) {
-    console.log("❌ Error in startWhatsApp:", err.message);
+    console.error("Critical WhatsApp start error:", err);
     connecting = false;
-    pairingCode = "FAILED";
     botStatus.pairingCode = "FAILED";
   }
 }
 
-// Serve the frontend
+// ── Routes ──────────────────────────────────────────────────
+
 app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "index.html"));
+  res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
-// Health check endpoint (required by Render)
 app.get("/health", (req, res) => {
-  botStatus.uptime = process.uptime();
-  botStatus.lastUpdate = new Date().toISOString();
-  
-  res.status(200).json({ 
+  res.status(200).json({
     status: "healthy",
     whatsapp: botStatus.isWhatsAppConnected ? "connected" : "disconnected",
-    uptime: Math.floor(botStatus.uptime),
-    timestamp: botStatus.lastUpdate,
-    pairing_code: botStatus.pairingCode ? "available" : "none"
+    uptime: Math.floor(process.uptime())
   });
 });
 
-// Bot status endpoint
 app.get("/status", (req, res) => {
-  botStatus.uptime = process.uptime();
-  
   res.json({
     bot: {
-      active: botStatus.isActive,
       whatsapp_connected: botStatus.isWhatsAppConnected,
       pairing_code: botStatus.pairingCode,
       connected_phone: botStatus.connectedPhone,
-      uptime: `${Math.floor(botStatus.uptime)} seconds`
-    },
-    server: {
-      platform: process.platform,
-      node_version: process.version,
-      memory: `${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`,
-      uptime: `${Math.floor(process.uptime())}s`
-    },
-    endpoints: {
-      "GET /": "Frontend interface",
-      "POST /pair": "Get WhatsApp pairing code",
-      "GET /health": "Health check",
-      "GET /status": "This status page"
+      uptime_seconds: Math.floor(process.uptime())
     }
   });
 });
 
-// Pairing endpoint
 app.post("/pair", async (req, res) => {
-  try {
-    const phone = req.body.phone?.replace(/\D/g, "");
-    
-    if (!phone || phone.length < 10) {
-      return res.status(400).json({ 
-        code: "FAILED", 
-        error: "Invalid phone number. Format: 2348100000000 (with country code, no +)" 
+  const phone = String(req.body.phone || "").replace(/\D/g, "");
+
+  if (!phone || phone.length < 10) {
+    return res.status(400).json({ error: "Invalid phone number (use country code, no +)" });
+  }
+
+  botStatus.pairingCode = null;
+  botStatus.connectedPhone = phone;
+
+  await startWhatsApp(phone);
+
+  // Wait for code (max ~25 seconds)
+  let attempts = 0;
+  const interval = setInterval(() => {
+    attempts++;
+
+    if (botStatus.pairingCode) {
+      clearInterval(interval);
+
+      if (botStatus.pairingCode === "FAILED") {
+        return res.status(500).json({ error: "Failed to generate pairing code" });
+      }
+
+      return res.json({
+        code: botStatus.pairingCode,
+        phone,
+        message: "Use this code in WhatsApp → Link with phone number"
       });
     }
 
-    console.log(`📞 Pairing request for: ${phone}`);
-    
-    // Reset pairing code
-    pairingCode = null;
-    botStatus.pairingCode = null;
-    botStatus.connectedPhone = phone;
-    
-    // Start WhatsApp connection
-    await startWhatsApp(phone);
-    
-    // Wait for pairing code with timeout
-    let tries = 0;
-    const maxTries = 30; // 30 seconds timeout
-    
-    const checkCode = setInterval(() => {
-      if (pairingCode) {
-        clearInterval(checkCode);
-        console.log(`📱 Sending pairing code: ${pairingCode}`);
-        
-        if (pairingCode === "ALREADY_REGISTERED") {
-          res.json({ 
-            code: "ALREADY_REGISTERED",
-            message: "This number is already registered with the bot.",
-            note: "If you want to re-link, please logout from WhatsApp Web first."
-          });
-        } else if (pairingCode !== "FAILED") {
-          res.json({ 
-            code: pairingCode,
-            phone: phone,
-            timestamp: new Date().toISOString()
-          });
-        } else {
-          res.json({ 
-            code: "FAILED", 
-            error: "Failed to generate pairing code" 
-          });
-        }
-      } else if (++tries > maxTries) {
-        clearInterval(checkCode);
-        console.log("⏰ Pairing timeout");
-        res.json({ 
-          code: "FAILED", 
-          error: "Timeout - Please try again in a moment" 
-        });
-      }
-    }, 1000);
-    
-  } catch (err) {
-    console.log("❌ Error in /pair endpoint:", err.message);
-    res.status(500).json({ 
-      code: "FAILED", 
-      error: "Internal server error" 
-    });
-  }
+    if (attempts > 25) {
+      clearInterval(interval);
+      res.status(504).json({ error: "Timeout waiting for pairing code" });
+    }
+  }, 1000);
 });
 
-// Reset endpoint (clear auth data)
-app.post("/reset", (req, res) => {
+app.post("/reset", async (req, res) => {
   try {
-    if (fs.existsSync("auth")) {
-      fs.rmSync("auth", { recursive: true, force: true });
-      ensureDirectories();
-      console.log("🧹 Auth data cleared");
+    if (await fs.stat("auth").catch(() => false)) {
+      await fs.rm("auth", { recursive: true, force: true });
     }
-    
+    await ensureDirectories();
+
     botStatus.pairingCode = null;
-    botStatus.qrCode = null;
     botStatus.isWhatsAppConnected = false;
     botStatus.connectedPhone = null;
+    sock?.end();
     sock = null;
-    pairingCode = null;
     connecting = false;
-    
-    res.json({ 
-      success: true,
-      message: "Bot reset successfully. You can now pair a new number."
-    });
+
+    res.json({ success: true, message: "Session reset. Ready to pair again." });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// 404 handler
+// 404
 app.use((req, res) => {
-  res.status(404).json({ 
-    error: "Endpoint not found",
-    available_endpoints: [
-      { method: "GET", path: "/", description: "Frontend interface" },
-      { method: "POST", path: "/pair", description: "Get WhatsApp pairing code" },
-      { method: "GET", path: "/health", description: "Health check" },
-      { method: "GET", path: "/status", description: "Bot status" },
-      { method: "POST", path: "/reset", description: "Reset bot (clear auth)" }
-    ]
-  });
+  res.status(404).json({ error: "Not found" });
 });
 
-// Error handler
-app.use((err, req, res, next) => {
-  console.error("Server error:", err);
-  res.status(500).json({ 
-    error: "Internal server error",
-    details: process.env.NODE_ENV === 'development' ? err.message : undefined
-  });
-});
+// ── Start Server ────────────────────────────────────────────
+app.listen(PORT, async () => {
+  console.log(`═══════════════════════════════════════`);
+  console.log(`     VIRAL-BOT SERVER @ port ${PORT}    `);
+  console.log(`═══════════════════════════════════════`);
 
-// Initialize and start server
-async function initializeServer() {
-  try {
-    ensureDirectories();
-    botStatus.isActive = true;
-    botStatus.startTime = new Date().toISOString();
-    
-    console.log(`
-╔══════════════════════════════════════════╗
-║        VIRAL-BOT WHATSAPP SERVER         ║
-╠══════════════════════════════════════════╣
-║                                          ║
-║  🌐 Port: ${PORT}                              ║
-║  🚀 Status: INITIALIZING...              ║
-║  📍 Health: http://localhost:${PORT}/health     ║
-║  📊 Status: http://localhost:${PORT}/status     ║
-║                                          ║
-╚══════════════════════════════════════════╝
+  await ensureDirectories();
 
-📦 Checking dependencies...
-    `);
-    
-    // Check if we have existing auth
-    if (fs.existsSync("auth/creds.json")) {
-      console.log("🔍 Existing auth found, auto-connecting to WhatsApp...");
-      setTimeout(() => startWhatsApp(), 3000);
-    } else {
-      console.log("🔐 No auth found, ready for pairing...");
-      console.log("\n👉 Open http://localhost:" + PORT + " to pair your WhatsApp");
-    }
-    
-  } catch (err) {
-    console.error("❌ Failed to initialize server:", err);
+  // Auto connect if we have previous session
+  if (await fs.stat("auth/creds.json").catch(() => false)) {
+    console.log("Found previous session → auto connecting...");
+    setTimeout(startWhatsApp, 3000);
+  } else {
+    console.log("No session found → waiting for /pair request");
   }
-}
-
-// Start server
-app.listen(PORT, () => {
-  initializeServer();
 });
-
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('🛑 SIGTERM received, shutting down gracefully...');
-  botStatus.isActive = false;
-  process.exit(0);
-});
-
-process.on('SIGINT', () => {
-  console.log('🛑 SIGINT received, shutting down...');
-  botStatus.isActive = false;
-  process.exit(0);
-});
-
-// Update status periodically
-setInterval(() => {
-  botStatus.uptime = process.uptime();
-  botStatus.lastUpdate = new Date().toISOString();
-}, 30000);
-[file content end]
