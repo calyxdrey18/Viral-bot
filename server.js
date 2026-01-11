@@ -30,12 +30,13 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Bot state
+// Global bot state
 let sock = null;
 let isConnecting = false;
 let currentPairingCode = null;
 let currentPairPhone = null;
 
+// Main WhatsApp connection logic
 async function connectToWhatsApp(phoneNumber = null) {
   if (isConnecting) return;
   isConnecting = true;
@@ -58,7 +59,7 @@ async function connectToWhatsApp(phoneNumber = null) {
       auth: state,
       logger: pino({ level: 'silent' }),
       printQRInTerminal: false,
-      browser: ['WhatsApp Bot', 'Chrome', '131.0.0'],
+      browser: ['WhatsApp Pair Bot', 'Chrome', '131.0.0'],
       syncFullHistory: false,
       markOnlineOnConnect: true,
       shouldSyncHistoryMessage: () => false,
@@ -73,6 +74,7 @@ async function connectToWhatsApp(phoneNumber = null) {
     sock.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect, qr } = update;
 
+      // Ready to request pairing code
       if (qr || connection === 'connecting' || connection === 'open') {
         socketReady = true;
       }
@@ -178,7 +180,7 @@ Uptime: ${uptimeSec} seconds (${uptimeMin} minutes)`
               `User: @${sock.user?.id?.split('@')[0] || 'bot'}
 
 ` +
-              'Type .menu to see features.'
+              'Type .menu to see commands.'
           });
         } catch (err) {
           console.error('Failed to send alive reply:', err.message);
@@ -188,14 +190,14 @@ Uptime: ${uptimeSec} seconds (${uptimeMin} minutes)`
           '*WhatsApp Pair Bot Menu*
 
 ' +
-          '• .ping  → Check bot latency/uptime
+          '• .ping  → Check bot uptime
 ' +
           '• .alive → Show bot status
 ' +
           '• .menu  → Show this menu
 
 ' +
-          'Pairing is done from the web dashboard UI.';
+          'Pair your account from the web dashboard to use commands.';
 
         try {
           await sock.sendMessage(from, { text: menuText });
@@ -211,7 +213,7 @@ Uptime: ${uptimeSec} seconds (${uptimeMin} minutes)`
   }
 }
 
-// API endpoint for frontend
+// Pairing API used by frontend
 app.post('/pair', async (req, res) => {
   let phone = String(req.body?.phone || '').replace(/[^0-9]/g, '');
 
@@ -223,7 +225,7 @@ app.post('/pair', async (req, res) => {
     });
   }
 
-  // 0xxxxxxxxxx → 234xxxxxxxxxx (Nigeria-style)
+  // Optional Nigeria-style fix: 0xxxxxxxxxx → 234xxxxxxxxxx
   if (phone.startsWith('0')) {
     phone = '234' + phone.slice(1);
   }
@@ -269,10 +271,10 @@ app.post('/pair', async (req, res) => {
   }, 1000);
 });
 
-// Start server
+// Start HTTP server
 app.listen(PORT, '0.0.0.0', async () => {
   console.log(`Server running on port ${PORT}`);
-  console.log('Frontend should be available at: http://localhost:' + PORT);
+  console.log('Frontend available at: http://localhost:' + PORT);
 
   try {
     const hasCreds = await fs.stat('./auth/creds.json').catch(() => false);
