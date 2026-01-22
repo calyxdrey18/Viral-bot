@@ -3,29 +3,46 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ғʀᴇᴇ ᴡʜᴀᴛsᴀᴘᴘ ʙᴏᴛ</title>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css"/>
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <title>Viral-Bot Mini | WhatsApp Automation</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"/>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
+    /* --- ORIGINAL CSS (Kept Intact) --- */
     * { 
       margin: 0; 
       padding: 0; 
       box-sizing: border-box; 
+      scroll-behavior: smooth;
+    }
+    
+    :root {
+      --primary: #25D366;
+      --primary-dark: #128C7E;
+      --primary-light: #5af78e;
+      --secondary: #075E54;
+      --accent: #34B7F1;
+      --dark: #0c1a15;
+      --darker: #07110d;
+      --text: #ffffff;
+      --text-secondary: #b0e8d0;
+      --card-bg: rgba(18, 40, 30, 0.9);
+      --border: rgba(37, 211, 102, 0.2);
+      --success: #25D366;
+      --error: #ff4444;
+      --glass: rgba(255, 255, 255, 0.05);
     }
     
     body {
       font-family: 'Poppins', sans-serif;
-      background: linear-gradient(135deg, #0a1a2a 0%, #000010 100%);
-      color: #fff;
+      background: linear-gradient(135deg, var(--darker) 0%, var(--dark) 100%);
+      color: var(--text);
       min-height: 100vh;
-      display: flex;
-      justify-content: center;
-      align-items: center;
       overflow-x: hidden;
-      padding: 20px;
+      position: relative;
     }
 
-    .background-effects {
+    /* Background Animation */
+    .background-animation {
       position: fixed;
       top: 0;
       left: 0;
@@ -35,599 +52,801 @@
       overflow: hidden;
     }
 
-    /* Neon bubbles effect */
-    .neon-bubbles {
+    .bubble {
       position: absolute;
-      width: 100%;
-      height: 100%;
-      pointer-events: none;
-    }
-
-    .neon-bubbles span {
-      position: absolute;
-      display: block;
-      width: 14px;
-      height: 14px;
       border-radius: 50%;
-      background: radial-gradient(circle, #00f0ff, #0077ff);
-      animation: rise 8s linear infinite, drift 4s ease-in-out infinite;
-      filter: drop-shadow(0 0 6px #00f0ff);
-      opacity: 0.7;
+      background: radial-gradient(circle, var(--primary) 0%, transparent 70%);
+      opacity: 0.1;
+      animation: floatUp 15s infinite linear;
     }
 
-    @keyframes rise {
-      0% {
-        transform: translateY(110vh) scale(0.6);
-        opacity: 0;
-      }
-      30% {
-        opacity: 1;
-      }
-      100% {
-        transform: translateY(-15vh) scale(1.15);
-        opacity: 0;
-      }
+    @keyframes floatUp {
+      0% { transform: translateY(100vh) scale(0.5); opacity: 0; }
+      50% { opacity: 0.2; }
+      100% { transform: translateY(-100px) scale(1.2); opacity: 0; }
     }
 
-    @keyframes drift {
-      0% {
-        transform: translateX(0);
-      }
-      50% {
-        transform: translateX(18px);
-      }
-      100% {
-        transform: translateX(0);
-      }
-    }
-
-    /* WhatsApp chat bubbles */
-    .chat-bubbles {
-      position: absolute;
+    /* Navbar */
+    .navbar {
+      position: fixed;
+      top: 0;
+      left: 0;
       width: 100%;
-      height: 100%;
-      pointer-events: none;
-    }
-
-    .chat-bubble {
-      position: absolute;
-      background: rgba(37, 211, 102, 0.15);
-      border-radius: 20px;
-      opacity: 0.3;
-      animation: float 15s infinite linear;
-    }
-
-    @keyframes float {
-      0% {
-        transform: translateY(100vh) scale(0.5);
-        opacity: 0;
-      }
-      50% {
-        opacity: 0.4;
-      }
-      100% {
-        transform: translateY(-100px) scale(1);
-        opacity: 0;
-      }
-    }
-
-    .container {
-      position: relative;
-      z-index: 2;
-      width: 100%;
+      padding: 20px 40px;
       display: flex;
-      justify-content: center;
+      justify-content: space-between; /* Changed to space-between for menu */
       align-items: center;
+      z-index: 1000;
+      backdrop-filter: blur(10px);
+      background: rgba(7, 17, 13, 0.85);
+      border-bottom: 1px solid rgba(37, 211, 102, 0.1);
     }
 
-    .box {
-      position: relative;
-      background: linear-gradient(135deg, rgba(0, 20, 40, 0.7), rgba(0, 10, 30, 0.8));
-      backdrop-filter: blur(15px);
-      border-radius: 20px;
-      padding: 80px 25px 25px;
-      box-shadow: 0 10px 40px rgba(0, 150, 255, 0.2);
-      text-align: center;
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+    }
+
+    .logo-icon {
+      width: 40px;
+      height: 40px;
+      background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      box-shadow: 0 5px 15px rgba(37, 211, 102, 0.3);
+      color: white;
+    }
+
+    .logo-text {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .logo-text span {
+      color: var(--primary);
+    }
+
+    /* New Nav Menu */
+    .nav-menu {
+      display: flex;
+      gap: 30px;
+    }
+
+    .nav-item {
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-weight: 500;
+      font-size: 14px;
+      transition: color 0.3s;
+      cursor: pointer;
+    }
+
+    .nav-item:hover, .nav-item.active {
+      color: var(--primary);
+    }
+
+    /* Sections General */
+    section {
+      padding: 100px 20px 40px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
       width: 100%;
-      max-width: 420px;
-      animation: fadeIn 1s ease-in-out;
-      border: 1px solid rgba(126, 220, 255, 0.3);
-      margin-top: 40px;
     }
 
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(20px); }
-      to { opacity: 1; transform: translateY(0); }
+    /* --- HERO SECTION (New) --- */
+    #home {
+      text-align: center;
+      padding-top: 140px;
     }
 
-    .avatar {
-      position: absolute;
-      top: -50px;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 100px;
-      height: 100px;
-      border-radius: 50%;
-      overflow: hidden;
-      border: 4px solid rgba(126, 220, 255, 0.5);
-      box-shadow: 0 8px 30px rgba(0, 150, 255, 0.3);
-      background: linear-gradient(135deg, #0077ff, #00f0ff);
-      z-index: 3;
+    .hero-content {
+      max-width: 800px;
+      margin: 0 auto;
+      z-index: 2;
     }
 
-    .avatar img {
+    .hero-badge {
+      display: inline-block;
+      padding: 8px 16px;
+      background: rgba(37, 211, 102, 0.1);
+      border: 1px solid var(--border);
+      border-radius: 50px;
+      color: var(--primary);
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 20px;
+      letter-spacing: 1px;
+    }
+
+    .hero-title {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 48px;
+      font-weight: 800;
+      line-height: 1.2;
+      margin-bottom: 20px;
+      background: linear-gradient(to right, #fff, #b0e8d0);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero-title span {
+      background: linear-gradient(to right, var(--primary), var(--accent));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero-desc {
+      font-size: 16px;
+      color: var(--text-secondary);
+      margin-bottom: 40px;
+      line-height: 1.6;
+    }
+
+    .hero-img-container {
+      width: 200px;
+      height: 200px;
+      margin: 0 auto 40px;
+      position: relative;
+    }
+
+    .hero-img {
       width: 100%;
       height: 100%;
       object-fit: cover;
-      display: block;
+      border-radius: 50%;
+      border: 4px solid var(--border);
+      box-shadow: 0 0 50px rgba(37, 211, 102, 0.3);
+      animation: float 6s ease-in-out infinite;
     }
 
-    .whatsapp-header {
-      display: flex;
-      flex-direction: column;
+    @keyframes float {
+      0% { transform: translateY(0px); }
+      50% { transform: translateY(-20px); }
+      100% { transform: translateY(0px); }
+    }
+
+    .cta-btn {
+      display: inline-flex;
       align-items: center;
-      margin-bottom: 1rem;
-    }
-
-    .whatsapp-icon {
-      font-size: 2rem;
-      color: #25d366;
-      margin-bottom: 8px;
-      filter: drop-shadow(0 0 8px #25d366);
-    }
-
-    h2 {
-      color: #7edcff;
-      margin: 0 0 5px;
-      font-size: 1.5rem;
-      text-shadow: 0 0 10px rgba(126, 220, 255, 0.5);
-    }
-
-    h6 {
-      color: #aeeeff;
-      margin: 0 0 12px;
-      font-weight: 500;
-      font-size: 0.9rem;
-    }
-
-    .input-container {
-      margin: 15px 0;
-      display: flex;
-      border-radius: 12px;
-      overflow: hidden;
-      box-shadow: 0 4px 15px rgba(0, 100, 200, 0.3);
-    }
-
-    .input-container input {
-      width: 70%;
-      padding: 0.9rem;
-      border: none;
-      outline: none;
-      background: rgba(255, 255, 255, 0.95);
-      font-size: 1rem;
-      color: #000;
-    }
-
-    .input-container input::placeholder {
-      color: #888;
-    }
-
-    .input-container button {
-      width: 30%;
-      padding: 0.9rem;
-      border: none;
-      background: linear-gradient(135deg, #25d366, #128c7e);
-      color: #fff;
+      gap: 10px;
+      padding: 16px 40px;
+      background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+      color: white;
+      border-radius: 50px;
       font-weight: 600;
+      font-size: 16px;
+      text-decoration: none;
+      box-shadow: 0 10px 30px rgba(37, 211, 102, 0.3);
+      transition: all 0.3s ease;
+      border: none;
       cursor: pointer;
+    }
+
+    .cta-btn:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 15px 40px rgba(37, 211, 102, 0.4);
+    }
+
+    /* --- FEATURES SECTION (New) --- */
+    #features {
+      background: rgba(0,0,0,0.2);
+    }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 30px;
+      max-width: 1200px;
+      width: 100%;
+      padding: 20px;
+    }
+
+    .feature-card {
+      background: var(--card-bg);
+      padding: 30px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
       transition: all 0.3s ease;
     }
 
-    .input-container button:hover {
-      background: linear-gradient(135deg, #128c7e, #075e54);
-      box-shadow: 0 0 15px rgba(37, 211, 102, 0.5);
+    .feature-card:hover {
+      transform: translateY(-10px);
+      border-color: var(--primary);
     }
 
-    .input-container button:disabled {
-      background: #555;
-      cursor: not-allowed;
-      box-shadow: none;
+    .f-icon {
+      width: 50px;
+      height: 50px;
+      background: rgba(37, 211, 102, 0.1);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--primary);
+      font-size: 24px;
+      margin-bottom: 20px;
     }
 
-    .centered-text {
-      margin: 12px 0;
-      color: white;
+    .f-title {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 10px;
+      font-family: 'Montserrat', sans-serif;
+    }
+
+    .f-text {
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+
+    /* --- PAIRING SECTION (Original Logic Wrapped) --- */
+    .pairing-container {
+      width: 100%;
+      max-width: 480px;
+      padding: 20px;
+      position: relative;
+      z-index: 2;
+    }
+
+    .pairing-card {
+      background: var(--card-bg);
+      backdrop-filter: blur(20px);
+      border-radius: 20px;
+      padding: 40px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+      border: 1px solid var(--border);
+      position: relative;
+      overflow: hidden;
+      text-align: center;
+    }
+
+    .pairing-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: linear-gradient(90deg, var(--primary), var(--accent), var(--primary));
+    }
+
+    .avatar-container {
+      position: relative;
+      width: 100px;
+      height: 100px;
+      margin: -90px auto 20px; 
+      border-radius: 50%;
+      padding: 4px;
+      background: linear-gradient(135deg, var(--primary), var(--accent));
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    }
+
+    .avatar-img {
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 4px solid var(--darker);
+      background: var(--dark);
+    }
+
+    .header-text h2 {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 28px;
+      font-weight: 700;
+      margin-bottom: 5px;
+    }
+
+    .header-text h6 {
+      color: var(--primary);
+      font-weight: 500;
+      margin-bottom: 25px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      font-size: 11px;
+    }
+
+    .input-group {
+      text-align: left;
+      margin-bottom: 25px;
+    }
+
+    .input-label {
+      font-size: 14px;
+      color: var(--text-secondary);
+      margin-bottom: 10px;
+      display: block;
       font-weight: 500;
     }
 
-    .info-container {
-      background: rgba(0, 30, 60, 0.4);
-      padding: 1rem;
-      border-radius: 15px;
-      color: #aeeeff;
+    .input-wrapper {
+      position: relative;
+    }
+
+    .phone-input {
+      width: 100%;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      padding: 16px 20px;
+      color: var(--text);
+      font-size: 16px;
+      font-family: 'Poppins', sans-serif;
+      outline: none;
+      transition: all 0.3s ease;
+    }
+
+    .phone-input:focus {
+      border-color: var(--primary);
+      background: rgba(255, 255, 255, 0.08);
+      box-shadow: 0 0 0 4px rgba(37, 211, 102, 0.1);
+    }
+
+    .btn {
+      width: 100%;
+      padding: 16px;
+      border-radius: 12px;
+      font-weight: 600;
+      font-size: 16px;
+      cursor: pointer;
+      border: none;
       display: flex;
-      justify-content: center;
       align-items: center;
-      gap: 12px;
-      flex-direction: column;
-      border: 1px solid rgba(126, 220, 255, 0.2);
-      margin: 15px 0;
+      justify-content: center;
+      gap: 10px;
+      transition: all 0.3s ease;
+      font-family: 'Montserrat', sans-serif;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+      color: white;
+      box-shadow: 0 8px 20px rgba(37, 211, 102, 0.2);
+      margin-bottom: 15px;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 12px 25px rgba(37, 211, 102, 0.3);
+    }
+
+    .action-row {
+      display: flex;
+      gap: 10px;
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text-secondary);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      font-size: 14px;
+      padding: 12px;
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--text);
+    }
+
+    .code-display {
+      font-family: 'Montserrat', monospace;
+      font-size: 32px;
+      font-weight: 700;
+      letter-spacing: 4px;
+      color: var(--primary-light);
+      padding: 20px;
+      background: rgba(0, 0, 0, 0.4);
+      border-radius: 12px;
+      border: 1px solid rgba(37, 211, 102, 0.3);
+      cursor: pointer;
+      transition: all 0.3s ease;
+      margin-top: 15px;
+      position: relative;
+    }
+
+    .code-display:hover {
+      background: rgba(0, 0, 0, 0.6);
+      border-color: var(--primary);
+    }
+
+    .code-display::after {
+      content: 'Click to Copy';
+      position: absolute;
+      bottom: 5px;
+      left: 0;
+      width: 100%;
+      font-size: 10px;
+      color: var(--text-secondary);
+      font-weight: 400;
+      letter-spacing: 0;
+      text-transform: uppercase;
+      font-family: 'Poppins', sans-serif;
+    }
+
+    .loading-spinner {
+      margin: 20px auto;
+      width: 40px;
+      height: 40px;
+      border: 3px solid rgba(255, 255, 255, 0.1);
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    .status-msg {
+      margin-top: 10px;
+      font-size: 14px;
+      color: var(--text-secondary);
+    }
+
+    .error-box {
+      background: rgba(255, 68, 68, 0.1);
+      border: 1px solid rgba(255, 68, 68, 0.3);
+      color: #ff8888;
+      padding: 15px;
+      border-radius: 10px;
+      margin-top: 20px;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .info-bar {
+      margin-top: 30px;
+      padding-top: 20px;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: var(--text-secondary);
     }
 
     .info-item {
       display: flex;
       align-items: center;
-      gap: 8px;
-      font-size: 0.9rem;
+      gap: 6px;
     }
 
-    .info-item i {
-      color: #7edcff;
-      width: 18px;
-    }
-
-    #copy {
-      cursor: pointer;
-      transition: all 0.3s ease;
-      padding: 0.7rem 1.2rem;
-      border-radius: 10px;
-      background: rgba(0, 100, 200, 0.3);
-      display: inline-block;
-      animation: blink 1s infinite;
-      margin: 10px 0;
-    }
-
-    @keyframes blink {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.7; }
-    }
-
-    #copy:hover {
-      background: rgba(0, 150, 255, 0.4);
-      transform: scale(1.05);
-    }
-
-    .instructions {
-      font-size: 0.8rem;
-      color: #aeeeff;
-      text-align: left;
-      background: rgba(0, 30, 60, 0.3);
-      padding: 0.9rem;
-      border-radius: 10px;
-      margin: 15px 0;
-    }
-    
-    .instructions ol {
-      padding-left: 1.1rem;
-      margin-top: 0.4rem;
-    }
-    
-    .instructions li {
-      margin-bottom: 0.4rem;
-      line-height: 1.4;
-    }
-
-    .status-indicator {
-      display: inline-block;
+    .status-dot {
       width: 8px;
       height: 8px;
+      background: var(--success);
       border-radius: 50%;
-      background: #25d366;
-      margin-left: 6px;
-      box-shadow: 0 0 6px #25d366;
-      animation: pulse 1.5s infinite;
-    }
-
-    @keyframes pulse {
-      0% { opacity: 0.5; }
-      50% { opacity: 1; }
-      100% { opacity: 0.5; }
-    }
-
-    .actions {
-      display: flex;
-      gap: 10px;
-      justify-content: center;
-      margin: 15px 0;
-    }
-
-    .join-btn {
-      background: linear-gradient(135deg, #25d366, #128c7e);
-      color: white;
-      padding: 8px 16px;
-      border-radius: 10px;
-      border: none;
-      font-weight: 600;
-      cursor: pointer;
-      box-shadow: 0 4px 12px rgba(37, 211, 102, 0.3);
-      transition: all 0.3s ease;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 0.9rem;
-    }
-
-    .join-btn:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 6px 16px rgba(37, 211, 102, 0.4);
-    }
-
-    /* Clean small clear button style */
-    .clear-btn {
-      background: transparent;
-      border: 1px solid rgba(255, 255, 255, 0.2);
-      padding: 8px 12px;
-      border-radius: 8px;
-      color: #aeeeff;
-      cursor: pointer;
-      transition: all 0.3s ease;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 0.9rem;
-    }
-
-    .clear-btn:hover {
-      background: rgba(255, 255, 255, 0.1);
-      transform: translateY(-2px);
-    }
-
-    .whatsapp-footer {
-      font-size: 0.7rem;
-      color: rgba(255, 255, 255, 0.6);
-      margin-top: 15px;
+      box-shadow: 0 0 10px var(--success);
+      animation: pulse 2s infinite;
     }
 
     .notification {
       position: fixed;
-      top: 20px;
+      top: 90px;
       right: 20px;
-      padding: 0.8rem 1.2rem;
-      background: rgba(0, 50, 100, 0.9);
+      background: var(--card-bg);
       backdrop-filter: blur(10px);
-      border-radius: 8px;
-      box-shadow: 0 0 12px rgba(126, 220, 255, 0.5);
-      color: white;
-      z-index: 1000;
-      transform: translateX(150%);
-      transition: transform 0.3s ease;
-      font-size: 0.9rem;
+      padding: 12px 20px;
+      border-radius: 10px;
+      border-left: 4px solid var(--primary);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+      z-index: 2000;
+      transform: translateX(200%);
+      transition: transform 0.4s ease;
+      display: flex;
+      align-items: center;
+      gap: 12px;
     }
-    
+
     .notification.show {
       transform: translateX(0);
     }
 
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+
+    /* Utility to hide/show sections */
+    .hidden { display: none !important; }
+
     @media (max-width: 480px) {
-      .box {
-        padding: 70px 20px 20px;
-        margin-top: 30px;
-      }
-      
-      .avatar {
-        width: 90px;
-        height: 90px;
-        top: -45px;
-      }
-      
-      .input-container {
-        flex-direction: column;
-      }
-      
-      .input-container input,
-      .input-container button {
-        width: 100%;
-        border-radius: 10px;
-      }
-      
-      .input-container input {
-        border-radius: 10px 10px 0 0;
-      }
-      
-      .input-container button {
-        border-radius: 0 0 10px 10px;
-      }
-      
-      .actions {
-        flex-direction: column;
-      }
+      .hero-title { font-size: 32px; }
+      .navbar { justify-content: space-between; padding: 15px; }
+      .nav-menu { display: none; } /* Add hamburger later if needed */
+      .pairing-card { padding: 30px 20px 20px; }
+      .avatar-container { margin-top: -60px; }
     }
   </style>
 </head>
 <body>
-  <div class="background-effects">
-    <div class="neon-bubbles" id="neon-bubbles"></div>
-    <div class="chat-bubbles" id="chat-bubbles"></div>
-  </div>
-  
-  <div class="notification" id="notification">
-    Code copied to clipboard!
-  </div>
-  
-  <div class="container">
-    <div class="box">
-      <div class="avatar">
-        <img src="https://i.ibb.co/YzGgr0m/malvin-xd.jpg" alt="Malvin Bot">
-      </div>
-      
-      <div class="whatsapp-header">
-        <i class="fab fa-whatsapp whatsapp-icon"></i>
-        <h2>ғʀᴇᴇ ᴡʜᴀᴛsᴀᴘᴘ ʙᴏᴛ</h2>
-        <h6>ᴄʀᴇᴀᴛᴇᴅ ʙʏ ᴍᴀʟᴠɪɴ ᴛᴇᴄʜ</h6>
-      </div>
-      
-      <h6><i class="fas fa-mobile-alt"></i> Enter your number with country code</h6>
-      
-      <div class="input-container">
-        <input placeholder="ᴇ.ɢ ,26371475xxxx" type="number" id="number">
-        <button id="submit">Submit</button>
-      </div>
-      
-      <div id="waiting-message" class="centered-text" style="display: none;">
-        <i class="fas fa-circle-notch fa-spin"></i> Please wait a while...
-      </div>
-      
-      <main id="pair"></main>
 
-      <div class="info-container">
-        <div class="info-item">
-          <i class="fas fa-clock"></i> Time: <span id="uptime">00:00:00</span>
-        </div>
-        <div class="info-item">
-          <i class="fas fa-server"></i> Status: <span id="status">Online</span><span class="status-indicator"></span>
-        </div>
+  <!-- Animation Background -->
+  <div class="background-animation" id="bgAnimation"></div>
+
+  <!-- Navbar -->
+  <nav class="navbar">
+    <a href="#" class="logo">
+      <div class="logo-icon"><i class="fab fa-whatsapp"></i></div>
+      <div class="logo-text">Viral-<span>Bot Mini</span></div>
+    </a>
+    <div class="nav-menu">
+      <a class="nav-item active" onclick="switchTab('home')">Home</a>
+      <a class="nav-item" onclick="switchTab('features')">Features</a>
+      <a class="nav-item" onclick="switchTab('pair')">Pair</a>
+    </div>
+  </nav>
+
+  <!-- Notification Toast -->
+  <div class="notification" id="notification">
+    <i class="fas fa-check-circle" style="color: var(--primary)"></i>
+    <span id="notifText">Message</span>
+  </div>
+
+  <!-- HOME SECTION -->
+  <section id="home">
+    <div class="hero-content">
+      <div class="hero-img-container">
+        <img src="https://i.postimg.cc/tg7spkqh/bot-img.png" class="hero-img" alt="Bot">
       </div>
-      
-      <div class="instructions">
-        <strong><i class="fas fa-info-circle"></i> Pairing Instructions:</strong>
-        <ol>
-          <li>Enter your WhatsApp number with country code</li>
-          <li>Click "Submit" to generate your code</li>
-          <li>Open WhatsApp and link device ,select pair with phone number ,enter you code...n enjoy the service</li>
-          <li>You'll receive a confirmation when paired</li>
-        </ol>
+      <div class="hero-badge">🚀 POWERED BY CALYX STUDIO</div>
+      <h1 class="hero-title">Automate Your <br><span>WhatsApp World</span></h1>
+      <p class="hero-desc">
+        Experience the most powerful lightweight WhatsApp bot. 
+        Auto-reply, group management, and seamless integration 
+        with zero downtime.
+      </p>
+      <button onclick="switchTab('pair')" class="cta-btn">
+        <i class="fas fa-link"></i> Connect Now
+      </button>
+    </div>
+  </section>
+
+  <!-- FEATURES SECTION -->
+  <section id="features" class="hidden">
+    <div class="hero-content" style="margin-bottom: 40px;">
+      <h2 class="hero-title" style="font-size: 36px;">Why Choose <span>Us?</span></h2>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="f-icon"><i class="fas fa-robot"></i></div>
+        <h3 class="f-title">Auto Automation</h3>
+        <p class="f-text">Set up auto-replies, welcome messages, and scheduled tasks effortlessly.</p>
       </div>
-      
-      <div class="actions">
-        <button class="join-btn" id="joinBtn">
-          <i class="fab fa-whatsapp"></i> Join Channel
-        </button>
-        <button class="clear-btn" id="clearBtn">
-          <i class="fas fa-eraser"></i> Clear
-        </button>
+      <div class="feature-card">
+        <div class="f-icon"><i class="fas fa-shield-alt"></i></div>
+        <h3 class="f-title">Secure & Safe</h3>
+        <p class="f-text">End-to-end encryption ensures your data and chats remain private.</p>
       </div>
-      
-      <div class="whatsapp-footer">
-        This is not an official WhatsApp product. Use at your own risk.
+      <div class="feature-card">
+        <div class="f-icon"><i class="fas fa-bolt"></i></div>
+        <h3 class="f-title">Lightning Fast</h3>
+        <p class="f-text">Optimized for speed with minimal latency and high uptime.</p>
+      </div>
+      <div class="feature-card">
+        <div class="f-icon"><i class="fas fa-code-branch"></i></div>
+        <h3 class="f-title">Multi-Session</h3>
+        <p class="f-text">Connect multiple numbers and manage them from a single dashboard.</p>
       </div>
     </div>
-  </div>
+  </section>
+
+  <!-- PAIRING SECTION (Original Functionality Wrapped) -->
+  <section id="pair" class="hidden">
+    <div class="pairing-container">
+      <div class="pairing-card">
+        
+        <!-- Floating Avatar -->
+        <div class="avatar-container">
+          <img src="https://i.postimg.cc/tg7spkqh/bot-img.png" alt="Bot" class="avatar-img">
+        </div>
+  
+        <div class="header-text">
+          <h2>Pair Device</h2>
+          <h6>POWERED BY CALYX STUDIO</h6>
+        </div>
+  
+        <!-- Input Form -->
+        <div class="input-group">
+          <label class="input-label"><i class="fas fa-mobile-alt"></i> Phone Number</label>
+          <div class="input-wrapper">
+            <input id="number" type="tel" class="phone-input" placeholder="Example: 2637866XXXXX">
+          </div>
+        </div>
+  
+        <!-- Submit Button -->
+        <button id="submit" class="btn btn-primary">
+          <i class="fas fa-qrcode"></i> Generate Pairing Code
+        </button>
+  
+        <!-- Action Buttons -->
+        <div class="action-row">
+          <button id="joinBtn" class="btn btn-secondary">
+            <i class="fab fa-whatsapp"></i> Channel
+          </button>
+          <button id="clearBtn" class="btn btn-secondary">
+            <i class="fas fa-eraser"></i> Clear
+          </button>
+        </div>
+  
+        <!-- Loading / Result Area -->
+        <div id="waiting-message" style="display: none;">
+          <div class="loading-spinner"></div>
+          <div class="status-msg">Connecting to server...</div>
+        </div>
+  
+        <main id="pair-result"></main>
+  
+        <!-- Footer Info -->
+        <div class="info-bar">
+          <div class="info-item">
+            <i class="fas fa-clock"></i> <span id="uptime">00:00:00</span>
+          </div>
+          <div class="info-item">
+            <span class="status-dot"></span> Online
+          </div>
+        </div>
+  
+      </div>
+    </div>
+  </section>
 
   <script>
-    // Create background effects
-    const neonContainer = document.getElementById("neon-bubbles");
-    const chatContainer = document.getElementById("chat-bubbles");
-    
-    // Create neon bubbles
-    for (let i = 0; i < 40; i++) {
-      const bubble = document.createElement("span");
-      bubble.style.left = Math.random() * 100 + "vw";
-      bubble.style.animationDuration = (5 + Math.random() * 5) + "s";
-      bubble.style.animationDelay = (Math.random() * 8) + "s";
-      const hue = Math.floor(Math.random() * 360);
-      bubble.style.background = `radial-gradient(circle, hsl(${hue}, 100%, 75%), hsl(${hue}, 100%, 45%))`;
-      neonContainer.appendChild(bubble);
-    }
-    
-    // Create chat bubbles
-    for (let i = 0; i < 15; i++) {
-      const bubble = document.createElement("div");
-      bubble.classList.add("chat-bubble");
-      const size = Math.random() * 100 + 20;
-      bubble.style.width = `${size}px`;
-      bubble.style.height = `${size}px`;
-      bubble.style.left = `${Math.random() * 100}%`;
-      bubble.style.animationDuration = `${15 + Math.random() * 15}s`;
-      bubble.style.animationDelay = `${Math.random() * 5}s`;
-      chatContainer.appendChild(bubble);
+    // --- Navigation Logic ---
+    function switchTab(tabId) {
+      // Hide all sections
+      document.getElementById('home').classList.add('hidden');
+      document.getElementById('features').classList.add('hidden');
+      document.getElementById('pair').classList.add('hidden');
+
+      // Show selected section
+      document.getElementById(tabId).classList.remove('hidden');
+
+      // Update Nav Active State
+      const navItems = document.querySelectorAll('.nav-item');
+      navItems.forEach(item => item.classList.remove('active'));
+      
+      // Highlight current nav item (simple match based on index/text logic)
+      if(tabId === 'home') navItems[0].classList.add('active');
+      if(tabId === 'features') navItems[1].classList.add('active');
+      if(tabId === 'pair') navItems[2].classList.add('active');
     }
 
-    // Live Clock Time
-    const uptime = document.getElementById("uptime");
+    // --- Background Animation ---
+    const bgContainer = document.getElementById("bgAnimation");
+    for (let i = 0; i < 20; i++) {
+      const bubble = document.createElement("div");
+      bubble.classList.add("bubble");
+      bubble.style.width = `${Math.random() * 100 + 20}px`;
+      bubble.style.height = bubble.style.width;
+      bubble.style.left = `${Math.random() * 100}%`;
+      bubble.style.animationDuration = `${Math.random() * 10 + 10}s`;
+      bubble.style.animationDelay = `${Math.random() * 5}s`;
+      bgContainer.appendChild(bubble);
+    }
+
+    // --- Clock Logic ---
     function updateTime() {
       const now = new Date();
-      let hours = now.getHours();
-      let mins = String(now.getMinutes()).padStart(2, '0');
-      let secs = String(now.getSeconds()).padStart(2, '0');
-      let ampm = hours >= 12 ? 'PM' : 'AM';
-      hours = hours % 12 || 12;
-      uptime.textContent = `${hours}:${mins}:${secs} ${ampm}`;
+      const timeStr = now.toLocaleTimeString('en-US', { hour12: false });
+      document.getElementById("uptime").textContent = timeStr;
     }
     setInterval(updateTime, 1000);
     updateTime();
 
-    // Notification system
-    function showNotification(message) {
-      const notification = document.getElementById("notification");
-      notification.textContent = message;
-      notification.classList.add("show");
+    // --- Notification Logic ---
+    function showToast(msg, type = 'success') {
+      const notif = document.getElementById("notification");
+      const txt = document.getElementById("notifText");
+      txt.innerText = msg;
       
-      setTimeout(() => {
-        notification.classList.remove("show");
-      }, 3000);
-    }
-
-    // Code generation
-    let a = document.getElementById("pair");
-    let b = document.getElementById("submit");
-    let c = document.getElementById("number");
-    let waitingMessage = document.getElementById("waiting-message");
-    let statusElement = document.getElementById("status");
-
-    async function Copy() {
-      let text = document.getElementById("copy").innerText;
-      let obj = document.getElementById("copy");
-      await navigator.clipboard.writeText(obj.innerText.replace('CODE: ', ''));
-      obj.innerText = "COPIED";
-      obj.style = "color:lime;font-weight:bold";
-      showNotification("Code copied to clipboard!");
-      
-      setTimeout(() => {
-        obj.innerText = text;
-        obj.style = "color:deepskyblue;font-weight:bold";
-      }, 500);
-    }
-
-    b.addEventListener("click", async (e) => {
-      e.preventDefault();
-      if (!c.value) {
-        a.innerHTML = '<div style="color:#ff6b6b;font-weight:500;margin-top:10px"><i class="fas fa-exclamation-circle"></i> Enter your WhatsApp number with Country Code</div>';
-      } else if (c.value.replace(/[^0-9]/g, "").length < 11) {
-        a.innerHTML = '<div style="color:#ff6b6b;font-weight:500;margin-top:10px"><i class="fas fa-times-circle"></i> Invalid Number</div>';
+      if(type === 'error') {
+        notif.style.borderLeftColor = 'var(--error)';
+        notif.querySelector('i').className = 'fas fa-exclamation-circle';
+        notif.querySelector('i').style.color = 'var(--error)';
       } else {
-        const number = c.value.replace(/[^0-9]/g, "");
-        c.type = "text";
-        c.value = "+" + number;
-        c.style = "color:black;font-size:18px;";
-        a.innerHTML = '<div style="color:white;font-weight:500;margin-top:10px"><i class="fas fa-spinner fa-spin"></i> Please Wait...</div>';
-        waitingMessage.style.display = "block";
-        statusElement.textContent = "Processing";
+        notif.style.borderLeftColor = 'var(--primary)';
+        notif.querySelector('i').className = 'fas fa-check-circle';
+        notif.querySelector('i').style.color = 'var(--primary)';
+      }
+
+      notif.classList.add("show");
+      setTimeout(() => notif.classList.remove("show"), 3000);
+    }
+
+    // --- Copy Logic ---
+    window.Copy = async function() {
+      const codeDiv = document.getElementById("copy");
+      if(codeDiv) {
+        const text = codeDiv.innerText.replace('CODE: ', '').trim();
+        await navigator.clipboard.writeText(text);
+        showToast("Code copied to clipboard!");
         
-        try {
-          let res = await fetch(`/code?number=${number}`);
-          let data = await res.json();
-          let code = data.code || "Service Unavailable";
-          a.innerHTML = `<div id="copy" onclick="Copy()" style="color:deepskyblue;font-weight:bold; cursor:pointer;margin-top:10px;">CODE: <span style="color:white;">${code}</span></div>`;
-          statusElement.textContent = "Paired";
-        } catch (error) {
-          a.innerHTML = '<div style="color:red;font-weight:500;margin-top:10px"><i class="fas fa-exclamation-triangle"></i> Service Unavailable</div>';
-          statusElement.textContent = "Error";
-        } finally {
-          waitingMessage.style.display = "none";
+        const originalText = codeDiv.innerHTML;
+        codeDiv.innerText = "COPIED!";
+        setTimeout(() => {
+          codeDiv.innerHTML = originalText;
+        }, 1500);
+      }
+    }
+
+    // --- Pairing Functionality (Original Logic) ---
+    const resultArea = document.getElementById("pair-result");
+    const submitBtn = document.getElementById("submit");
+    const inputField = document.getElementById("number");
+    const waitingArea = document.getElementById("waiting-message");
+
+    submitBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      
+      if (!inputField.value) {
+        showToast("Please enter your phone number", "error");
+        return;
+      }
+      
+      const cleanNumber = inputField.value.replace(/[^0-9]/g, "");
+      if (cleanNumber.length < 10) {
+        showToast("Invalid phone number", "error");
+        return;
+      }
+
+      inputField.blur();
+      resultArea.innerHTML = '';
+      waitingArea.style.display = "block";
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+
+      try {
+        let response = await fetch(`/code?number=${cleanNumber}`);
+        let data = await response.json();
+
+        if (data.code && data.code !== "Service Unavailable") {
+          resultArea.innerHTML = `
+            <div id="copy" class="code-display" onclick="Copy()">CODE: ${data.code}</div>
+          `;
+          showToast("Pairing Code Generated!");
+        } else {
+          resultArea.innerHTML = `
+            <div class="error-box">
+              <i class="fas fa-exclamation-triangle"></i> ${data.error || "Service Unavailable"}
+            </div>
+          `;
+          showToast("Failed to generate code", "error");
         }
+      } catch (error) {
+        resultArea.innerHTML = `
+          <div class="error-box">
+            <i class="fas fa-wifi"></i> Network Error. Try again.
+          </div>
+        `;
+      } finally {
+        waitingArea.style.display = "none";
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<i class="fas fa-qrcode"></i> Generate Pairing Code';
       }
     });
 
-    // Clear button functionality
     document.getElementById("clearBtn").addEventListener("click", () => {
-      c.value = "";
-      c.type = "number";
-      c.style = "";
-      a.innerHTML = "";
-      statusElement.textContent = "Online";
+      inputField.value = "";
+      resultArea.innerHTML = "";
+      showToast("Cleared");
     });
 
-    // Join button functionality
     document.getElementById("joinBtn").addEventListener("click", () => {
-      window.open("https://whatsapp.com/channel/0029VbB3YxTDJ6H15SKoBv3S", "_blank");
+      window.open("https://whatsapp.com/channel/0029VbCGIzTJkK7C0wtGy31s", "_blank");
     });
 
-    // Allow pressing Enter to submit
-    c.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        b.click();
-      }
+    inputField.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") submitBtn.click();
     });
+
   </script>
 </body>
 </html>

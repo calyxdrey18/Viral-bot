@@ -1,0 +1,20 @@
+{
+    "name": "viral-bot-mini",
+    "description": "Mini web bot powered by Calyx Studio",
+    "logo": "https://i.postimg.cc/tg7spkqh/bot-img.png",
+    "repository": "https://github.com/XdKing2/free-sc-mini",
+    
+    "keywords": [
+    "VIRAL-BOT","Calyx-Drey", "Wesley"
+    ],
+    
+    "success_url": "/", 
+    "buildpacks": [{ "url": "https://github.com/heroku/heroku-buildpack-nodejs#latest" } ],
+    "env": {      
+      "PORT": {
+        "description": "Port for web app.4000,5000,3000... any!",
+        "value": "5000",
+        "required": false 
+      }
+    }   
+}
