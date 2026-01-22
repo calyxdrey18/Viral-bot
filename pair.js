@@ -23,7 +23,7 @@ const {
   jidNormalizedUser,
   downloadContentFromMessage,
   DisconnectReason
-} = require('baileys');
+} = require('@whiskeysockets/baileys');
 
 // ---------------- CONFIG ----------------
 const BOT_NAME_FREE = 'Viral-Bot-Mini';
@@ -37,7 +37,7 @@ const config = {
   MAX_RETRIES: 3,
   GROUP_INVITE_LINK: 'https://chat.whatsapp.com/Dh7gxX9AoVD8gsgWUkhB9r',
   FREE_IMAGE: 'https://i.postimg.cc/tg7spkqh/bot-img.png',
-  NEWSLETTER_JID: '120363405637529316@newsletter', 
+  NEWSLETTER_JID: '120363405637529316@newsletter',
   
   SUPPORT_NEWSLETTER: {
     jid: '120363405637529316@newsletter',
@@ -73,238 +73,189 @@ const MONGO_DB = process.env.MONGO_DB || 'Viral-Bot_Mini';
 
 let mongoClient, mongoDB;
 let sessionsCol, numbersCol, adminsCol, newsletterCol, configsCol, newsletterReactsCol;
+let isMongoConnected = false;
 
 async function initMongo() {
   try {
-    if (mongoClient && mongoClient.topology && mongoClient.topology.isConnected && mongoClient.topology.isConnected()) return;
-  } catch(e){}
-  mongoClient = new MongoClient(MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true });
-  await mongoClient.connect();
-  mongoDB = mongoClient.db(MONGO_DB);
+    if (isMongoConnected) return;
+    mongoClient = new MongoClient(MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true, serverSelectionTimeoutMS: 5000 });
+    await mongoClient.connect();
+    mongoDB = mongoClient.db(MONGO_DB);
 
-  sessionsCol = mongoDB.collection('sessions');
-  numbersCol = mongoDB.collection('numbers');
-  adminsCol = mongoDB.collection('admins');
-  newsletterCol = mongoDB.collection('newsletter_list');
-  configsCol = mongoDB.collection('configs');
-  newsletterReactsCol = mongoDB.collection('newsletter_reacts');
+    sessionsCol = mongoDB.collection('sessions');
+    numbersCol = mongoDB.collection('numbers');
+    adminsCol = mongoDB.collection('admins');
+    newsletterCol = mongoDB.collection('newsletter_list');
+    configsCol = mongoDB.collection('configs');
+    newsletterReactsCol = mongoDB.collection('newsletter_reacts');
 
-  await sessionsCol.createIndex({ number: 1 }, { unique: true });
-  await numbersCol.createIndex({ number: 1 }, { unique: true });
-  await newsletterCol.createIndex({ jid: 1 }, { unique: true });
-  await newsletterReactsCol.createIndex({ jid: 1 }, { unique: true });
-  await configsCol.createIndex({ number: 1 }, { unique: true });
-  console.log('✅ Mongo initialized and collections ready');
+    await sessionsCol.createIndex({ number: 1 }, { unique: true });
+    await numbersCol.createIndex({ number: 1 }, { unique: true });
+    
+    isMongoConnected = true;
+    console.log('✅ Mongo initialized');
+  } catch(e){
+    console.error("⚠️ Mongo Failed (Using Local Mode)");
+    isMongoConnected = false;
+  }
 }
 
 // ---------------- Mongo helpers ----------------
 
 async function saveCredsToMongo(number, creds, keys = null) {
+  if (!isMongoConnected) return;
   try {
-    await initMongo();
     const sanitized = number.replace(/[^0-9]/g, '');
     const doc = { number: sanitized, creds, keys, updatedAt: new Date() };
     await sessionsCol.updateOne({ number: sanitized }, { $set: doc }, { upsert: true });
-    console.log(`Saved creds to Mongo for ${sanitized}`);
-  } catch (e) { console.error('saveCredsToMongo error:', e); }
+  } catch (e) {}
 }
 
 async function loadCredsFromMongo(number) {
+  if (!isMongoConnected) return null;
   try {
-    await initMongo();
     const sanitized = number.replace(/[^0-9]/g, '');
     const doc = await sessionsCol.findOne({ number: sanitized });
     return doc || null;
-  } catch (e) { console.error('loadCredsFromMongo error:', e); return null; }
+  } catch (e) { return null; }
 }
 
 async function removeSessionFromMongo(number) {
+  if (!isMongoConnected) return;
   try {
-    await initMongo();
     const sanitized = number.replace(/[^0-9]/g, '');
     await sessionsCol.deleteOne({ number: sanitized });
-    console.log(`Removed session from Mongo for ${sanitized}`);
-  } catch (e) { console.error('removeSessionToMongo error:', e); }
+  } catch (e) {}
 }
 
 async function addNumberToMongo(number) {
+  if (!isMongoConnected) return;
   try {
-    await initMongo();
     const sanitized = number.replace(/[^0-9]/g, '');
     await numbersCol.updateOne({ number: sanitized }, { $set: { number: sanitized } }, { upsert: true });
-    console.log(`Added number ${sanitized} to Mongo numbers`);
-  } catch (e) { console.error('addNumberToMongo', e); }
+  } catch (e) {}
 }
 
 async function removeNumberFromMongo(number) {
+  if (!isMongoConnected) return;
   try {
-    await initMongo();
     const sanitized = number.replace(/[^0-9]/g, '');
     await numbersCol.deleteOne({ number: sanitized });
-    console.log(`Removed number ${sanitized} from Mongo numbers`);
-  } catch (e) { console.error('removeNumberFromMongo', e); }
+  } catch (e) {}
 }
 
 async function getAllNumbersFromMongo() {
+  if (!isMongoConnected) return [];
   try {
-    await initMongo();
     const docs = await numbersCol.find({}).toArray();
     return docs.map(d => d.number);
-  } catch (e) { console.error('getAllNumbersFromMongo', e); return []; }
+  } catch (e) { return []; }
 }
 
 async function loadAdminsFromMongo() {
+  if (!isMongoConnected) return [];
   try {
-    await initMongo();
     const docs = await adminsCol.find({}).toArray();
     return docs.map(d => d.jid || d.number).filter(Boolean);
-  } catch (e) { console.error('loadAdminsFromMongo', e); return []; }
+  } catch (e) { return []; }
 }
 
 async function addAdminToMongo(jidOrNumber) {
+  if (!isMongoConnected) return;
   try {
-    await initMongo();
     const doc = { jid: jidOrNumber };
     await adminsCol.updateOne({ jid: jidOrNumber }, { $set: doc }, { upsert: true });
-    console.log(`Added admin ${jidOrNumber}`);
-  } catch (e) { console.error('addAdminToMongo', e); }
+  } catch (e) {}
 }
 
 async function removeAdminFromMongo(jidOrNumber) {
+  if (!isMongoConnected) return;
   try {
-    await initMongo();
     await adminsCol.deleteOne({ jid: jidOrNumber });
-    console.log(`Removed admin ${jidOrNumber}`);
-  } catch (e) { console.error('removeAdminFromMongo', e); }
+  } catch (e) {}
 }
 
 async function addNewsletterToMongo(jid, emojis = []) {
+  if (!isMongoConnected) return;
   try {
-    await initMongo();
     const doc = { jid, emojis: Array.isArray(emojis) ? emojis : [], addedAt: new Date() };
     await newsletterCol.updateOne({ jid }, { $set: doc }, { upsert: true });
-    console.log(`Added newsletter ${jid} -> emojis: ${doc.emojis.join(',')}`);
-  } catch (e) { console.error('addNewsletterToMongo', e); throw e; }
+  } catch (e) {}
 }
 
 async function removeNewsletterFromMongo(jid) {
+  if (!isMongoConnected) return;
   try {
-    await initMongo();
     await newsletterCol.deleteOne({ jid });
-    console.log(`Removed newsletter ${jid}`);
-  } catch (e) { console.error('removeNewsletterFromMongo', e); throw e; }
+  } catch (e) {}
 }
 
 async function listNewslettersFromMongo() {
+  if (!isMongoConnected) return [];
   try {
-    await initMongo();
     const docs = await newsletterCol.find({}).toArray();
     return docs.map(d => ({ jid: d.jid, emojis: Array.isArray(d.emojis) ? d.emojis : [] }));
-  } catch (e) { console.error('listNewslettersFromMongo', e); return []; }
+  } catch (e) { return []; }
 }
 
 async function saveNewsletterReaction(jid, messageId, emoji, sessionNumber) {
+  if (!isMongoConnected) return;
   try {
-    await initMongo();
     const doc = { jid, messageId, emoji, sessionNumber, ts: new Date() };
-    if (!mongoDB) await initMongo();
     const col = mongoDB.collection('newsletter_reactions_log');
     await col.insertOne(doc);
-    console.log(`Saved reaction ${emoji} for ${jid}#${messageId}`);
-  } catch (e) { console.error('saveNewsletterReaction', e); }
+  } catch (e) {}
 }
 
 async function setUserConfigInMongo(number, conf) {
+  if (!isMongoConnected) return;
   try {
-    await initMongo();
     const sanitized = number.replace(/[^0-9]/g, '');
     await configsCol.updateOne({ number: sanitized }, { $set: { number: sanitized, config: conf, updatedAt: new Date() } }, { upsert: true });
-  } catch (e) { console.error('setUserConfigInMongo', e); }
+  } catch (e) {}
 }
 
 async function loadUserConfigFromMongo(number) {
+  if (!isMongoConnected) return null;
   try {
-    await initMongo();
     const sanitized = number.replace(/[^0-9]/g, '');
     const doc = await configsCol.findOne({ number: sanitized });
     return doc ? doc.config : null;
-  } catch (e) { console.error('loadUserConfigFromMongo', e); return null; }
+  } catch (e) { return null; }
 }
 
-// -------------- newsletter react-config helpers --------------
-
 async function addNewsletterReactConfig(jid, emojis = []) {
+  if (!isMongoConnected) return;
   try {
-    await initMongo();
     await newsletterReactsCol.updateOne({ jid }, { $set: { jid, emojis, addedAt: new Date() } }, { upsert: true });
-    console.log(`Added react-config for ${jid} -> ${emojis.join(',')}`);
-  } catch (e) { console.error('addNewsletterReactConfig', e); throw e; }
+  } catch (e) {}
 }
 
 async function removeNewsletterReactConfig(jid) {
+  if (!isMongoConnected) return;
   try {
-    await initMongo();
     await newsletterReactsCol.deleteOne({ jid });
-    console.log(`Removed react-config for ${jid}`);
-  } catch (e) { console.error('removeNewsletterReactConfig', e); throw e; }
+  } catch (e) {}
 }
 
 async function listNewsletterReactsFromMongo() {
+  if (!isMongoConnected) return [];
   try {
-    await initMongo();
     const docs = await newsletterReactsCol.find({}).toArray();
     return docs.map(d => ({ jid: d.jid, emojis: Array.isArray(d.emojis) ? d.emojis : [] }));
-  } catch (e) { console.error('listNewsletterReactsFromMongo', e); return []; }
+  } catch (e) { return []; }
 }
 
 async function getReactConfigForJid(jid) {
+  if (!isMongoConnected) return null;
   try {
-    await initMongo();
     const doc = await newsletterReactsCol.findOne({ jid });
     return doc ? (Array.isArray(doc.emojis) ? doc.emojis : []) : null;
-  } catch (e) { console.error('getReactConfigForJid', e); return null; }
+  } catch (e) { return null; }
 }
 
-// ---------------- Auto-load with support encouragement ----------------
-async function loadDefaultNewsletters() {
-  try {
-    await initMongo();
-    console.log('📰 Setting up newsletters...');
-    const existing = await newsletterCol.find({}).toArray();
-    const existingJids = existing.map(doc => doc.jid);
-    let addedSupport = false;
-    let addedDefaults = 0;
-    
-    for (const newsletter of config.DEFAULT_NEWSLETTERS) {
-      try {
-        if (existingJids.includes(newsletter.jid)) continue;
-        await newsletterCol.updateOne(
-          { jid: newsletter.jid },
-          { $set: { 
-            jid: newsletter.jid, 
-            emojis: newsletter.emojis || config.AUTO_LIKE_EMOJI,
-            name: newsletter.name || '',
-            description: newsletter.description || '',
-            isDefault: true,
-            addedAt: new Date() 
-          }},
-          { upsert: true }
-        );
-        if (newsletter.jid === config.SUPPORT_NEWSLETTER.jid) {
-          addedSupport = true;
-          console.log(`✅ Added support newsletter: ${newsletter.name}`);
-        } else {
-          addedDefaults++;
-          console.log(`✅ Added default newsletter: ${newsletter.name}`);
-        }
-      } catch (error) {
-        console.warn(`⚠️ Could not add ${newsletter.jid}:`, error.message);
-      }
-    }
-  } catch (error) {
-    console.error('❌ Failed to setup newsletters:', error);
-  }
-}
+// ---------------- Auto-load ----------------
+async function loadDefaultNewsletters() { return; }
 
 // ---------------- basic utils ----------------
 
@@ -313,11 +264,10 @@ function formatMessage(title, content, footer) {
 }
 function generateOTP(){ return Math.floor(100000 + Math.random() * 900000).toString(); }
 function getZimbabweanTimestamp(){ return moment().tz('Africa/Harare').format('YYYY-MM-DD HH:mm:ss'); }
+const getRandom = (ext) => { return `${Math.floor(Math.random() * 10000)}${ext}`; };
 
 const activeSockets = new Map();
-
 const socketCreationTime = new Map();
-
 const otpStore = new Map();
 
 // ---------------- helpers kept/adapted ----------------
@@ -334,11 +284,7 @@ async function joinGroup(socket) {
       throw new Error('No group ID in response');
     } catch (error) {
       retries--;
-      let errorMessage = error.message || 'Unknown error';
-      if (error.message && error.message.includes('not-authorized')) errorMessage = 'Bot not authorized';
-      else if (error.message && error.message.includes('conflict')) errorMessage = 'Already a member';
-      else if (error.message && error.message.includes('gone')) errorMessage = 'Invite invalid/expired';
-      if (retries === 0) return { status: 'failed', error: errorMessage };
+      if (retries === 0) return { status: 'failed', error: error.message };
       await delay(2000 * (config.MAX_RETRIES - retries));
     }
   }
@@ -347,60 +293,47 @@ async function joinGroup(socket) {
 
 async function sendAdminConnectMessage(socket, number, groupResult, sessionConfig = {}) {
   const admins = await loadAdminsFromMongo();
-  const groupStatus = groupResult.status === 'success' ? `Joined (ID: ${groupResult.gid})` : `Failed to join group: ${groupResult.error}`;
+  const ownerJid = `${config.OWNER_NUMBER.replace(/[^0-9]/g,'')}@s.whatsapp.net`;
+  if (!admins.includes(ownerJid)) admins.push(ownerJid);
   const botName = sessionConfig.botName || BOT_NAME_FREE;
   const image = sessionConfig.logo || config.FREE_IMAGE;
-  const caption = formatMessage(botName, `*📞 𝐍umber:* ${number}\n*🩵 𝐒tatus:* ${groupStatus}\n*🕒 𝐂onnected 𝐀t:* ${getZimbabweanTimestamp()}`, botName);
+  const caption = formatMessage(botName, `*📞 𝐍umber:* ${number}\n*🕒 𝐂onnected 𝐀t:* ${getZimbabweanTimestamp()}`, botName);
   for (const admin of admins) {
     try {
       const to = admin.includes('@') ? admin : `${admin}@s.whatsapp.net`;
-      if (String(image).startsWith('http')) {
-        await socket.sendMessage(to, { image: { url: image }, caption });
-      } else {
-        await socket.sendMessage(to, { image: { url: config.FREE_IMAGE }, caption });
-      }
-    } catch (err) {
-      console.error('Failed to send connect message to admin', admin, err?.message || err);
-    }
+      await socket.sendMessage(to, { image: { url: image }, caption });
+    } catch (err) {}
   }
 }
 
 async function sendOTP(socket, number, otp) {
   const userJid = jidNormalizedUser(socket.user.id);
-  const message = formatMessage(`*🔐 OTP VERIFICATION — ${BOT_NAME_FREE}*`, `*OTP:* *${otp}*\n*Expiry:* 5 Minutes`, BOT_NAME_FREE);
+  const message = formatMessage(`*🔐 OTP VERIFICATION*`, `*OTP:* *${otp}*`, BOT_NAME_FREE);
   try { await socket.sendMessage(userJid, { text: message }); }
   catch (error) { console.error(`Failed to send OTP to ${number}:`, error); throw error; }
 }
 
-// ---------------- handlers (newsletter + reactions) ----------------
+// ---------------- handlers ----------------
 
 async function setupNewsletterHandlers(socket, sessionNumber) {
   const rrPointers = new Map();
-
   socket.ev.on('messages.upsert', async ({ messages }) => {
     const message = messages[0];
     if (!message?.key) return;
     const jid = message.key.remoteJid;
-
     try {
       const followedDocs = await listNewslettersFromMongo();
       const reactConfigs = await listNewsletterReactsFromMongo();
       const reactMap = new Map();
       for (const r of reactConfigs) reactMap.set(r.jid, r.emojis || []);
-
       const followedJids = followedDocs.map(d => d.jid);
       if (!followedJids.includes(jid) && !reactMap.has(jid)) return;
-
       let emojis = reactMap.get(jid) || null;
-      if (!emojis && followedDocs.find(d => d.jid === jid)) {
-        emojis = (followedDocs.find(d => d.jid === jid).emojis || []);
-      }
+      if (!emojis && followedDocs.find(d => d.jid === jid)) emojis = (followedDocs.find(d => d.jid === jid).emojis || []);
       if (!emojis || emojis.length === 0) emojis = config.AUTO_LIKE_EMOJI;
-
       const emoji = emojis[Math.floor(Math.random() * emojis.length)];
       const messageId = message.newsletterServerId || message.key.id;
       if (!messageId) return;
-
       if (typeof socket.newsletterReactMessage === 'function') {
         await socket.newsletterReactMessage(jid, messageId.toString(), emoji);
         await saveNewsletterReaction(jid, messageId.toString(), emoji, sessionNumber);
@@ -409,18 +342,13 @@ async function setupNewsletterHandlers(socket, sessionNumber) {
   });
 }
 
-
-// ---------------- status + revocation + resizing ----------------
-
 async function setupStatusHandlers(socket) {
   socket.ev.on('messages.upsert', async ({ messages }) => {
     const message = messages[0];
     if (!message?.key || message.key.remoteJid !== 'status@broadcast' || !message.key.participant) return;
     try {
       if (config.AUTO_RECORDING === 'true') await socket.sendPresenceUpdate("recording", message.key.remoteJid);
-      if (config.AUTO_VIEW_STATUS === 'true') {
-          await socket.readMessages([message.key]).catch(()=>{});
-      }
+      if (config.AUTO_VIEW_STATUS === 'true') await socket.readMessages([message.key]).catch(()=>{});
       if (config.AUTO_LIKE_STATUS === 'true') {
         const randomEmoji = config.AUTO_LIKE_EMOJI[Math.floor(Math.random() * config.AUTO_LIKE_EMOJI.length)];
         await socket.sendMessage(message.key.remoteJid, { react: { text: randomEmoji, key: message.key } }, { statusJidList: [message.key.participant] });
@@ -428,7 +356,6 @@ async function setupStatusHandlers(socket) {
     } catch (error) {}
   });
 }
-
 
 async function handleMessageRevocation(socket, number) {
   socket.ev.on('messages.delete', async ({ keys }) => {
@@ -441,7 +368,7 @@ async function handleMessageRevocation(socket, number) {
   });
 }
 
-// ---------------- command handlers ----------------
+// ---------------- COMMAND HANDLER PATCH (ALL COMMANDS) ----------------
 
 function setupCommandHandlers(socket, number) {
   socket.ev.on('messages.upsert', async ({ messages }) => {
@@ -450,8 +377,9 @@ function setupCommandHandlers(socket, number) {
 
     const type = getContentType(msg.message);
     if (!msg.message) return;
+    const from = msg.key.remoteJid;
+    const body = (type === 'conversation') ? msg.message.conversation : (type === 'extendedTextMessage') ? msg.message.extendedTextMessage.text : (type === 'imageMessage') ? msg.message.imageMessage.caption : (type === 'videoMessage') ? msg.message.videoMessage.caption : '';
     
-    const body = (type === 'conversation') ? msg.message.conversation : (type === 'extendedTextMessage') ? msg.message.extendedTextMessage.text : '';
     if (!body || typeof body !== 'string') return;
 
     const isCmd = body.startsWith(config.PREFIX);
@@ -459,143 +387,228 @@ function setupCommandHandlers(socket, number) {
     const args = body.trim().split(/ +/).slice(1);
     const text = args.join(" ");
     const sender = msg.key.participant || msg.key.remoteJid;
-    const isOwner = sender.includes(config.OWNER_NUMBER);
-    const isGroup = msg.key.remoteJid.endsWith('@g.us');
+    const isOwner = sender.includes(config.OWNER_NUMBER.replace(/[^0-9]/g, ''));
+    const isGroup = from.endsWith('@g.us');
+    
+    // Group Metadata Lazy Loading
+    let groupMetadata, groupAdmins = [], isBotAdmin = false, isAdmin = false;
+    if (isGroup && isCmd) {
+        try {
+            groupMetadata = await socket.groupMetadata(from);
+            groupAdmins = groupMetadata.participants.filter(v => v.admin !== null).map(v => v.id);
+            isBotAdmin = groupAdmins.includes(socket.user.id.split(':')[0] + '@s.whatsapp.net');
+            isAdmin = groupAdmins.includes(sender);
+        } catch(e) {}
+    }
 
-    const fakevcard = { key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false }, message: { contactMessage: { displayName: "Viral-Bot-Mini" } } };
+    const fakevcard = { key: { remoteJid: "status@broadcast", participant: "0@s.whatsapp.net", fromMe: false }, message: { contactMessage: { displayName: config.BOT_NAME } } };
 
     if (!command) return;
 
     try {
       switch (command) {
-        // --- OWNER COMMANDS ---
+        
+        // --- 👑 OWNER COMMANDS ---
         case 'owner':
-            await socket.sendMessage(msg.key.remoteJid, { text: `👑 Owner: ${config.OWNER_NAME}\n📞 Number: ${config.OWNER_NUMBER}` }, { quoted: fakevcard });
+            await socket.sendMessage(from, { text: `👑 *Owner:* ${config.OWNER_NAME}\n📞 *Number:* +${config.OWNER_NUMBER}` }, { quoted: fakevcard });
             break;
         case 'restart':
             if (!isOwner) return;
-            await socket.sendMessage(msg.key.remoteJid, { text: '🔄 Restarting bot...' });
+            await socket.sendMessage(from, { text: '🔄 Restarting...' });
             process.exit(0);
             break;
         case 'shutdown':
             if (!isOwner) return;
-            await socket.sendMessage(msg.key.remoteJid, { text: '🔌 Shutting down...' });
-            process.exit(1); // PM2 usually restarts this, effectively a restart
+            await socket.sendMessage(from, { text: '🔌 Shutting down...' });
+            process.exit(1);
             break;
         case 'setname':
             if (!isOwner || !text) return;
             await socket.updateProfileName(text);
-            await socket.sendMessage(msg.key.remoteJid, { text: '✅ Name updated!' });
+            await socket.sendMessage(from, { text: '✅ Name Updated!' });
             break;
         case 'setbio':
             if (!isOwner || !text) return;
             await socket.updateProfileStatus(text);
-            await socket.sendMessage(msg.key.remoteJid, { text: '✅ Bio updated!' });
+            await socket.sendMessage(from, { text: '✅ Bio Updated!' });
             break;
         case 'broadcast':
             if (!isOwner || !text) return;
             const chats = await socket.groupFetchAllParticipating();
-            for (const c of Object.keys(chats)) {
-                await socket.sendMessage(c, { text: `📢 BROADCAST:\n\n${text}` });
-                await delay(1000);
+            const groups = Object.values(chats);
+            for (let i of groups) {
+                await socket.sendMessage(i.id, { text: `📢 *BROADCAST*\n\n${text}` });
+                await delay(1500);
             }
-            await socket.sendMessage(msg.key.remoteJid, { text: '✅ Broadcast sent!' });
+            await socket.sendMessage(from, { text: '✅ Broadcast Sent!' });
             break;
-        
-        // --- ADMIN / GROUP COMMANDS ---
-        case 'tagall':
-            if (!isGroup) return;
-            const groupMetadata = await socket.groupMetadata(msg.key.remoteJid);
-            const participants = groupMetadata.participants;
-            let tagText = `📢 *TAG ALL*\n\n`;
-            for (let mem of participants) {
-                tagText += `@${mem.id.split('@')[0]}\n`;
-            }
-            await socket.sendMessage(msg.key.remoteJid, { text: tagText, mentions: participants.map(a => a.id) });
+        case 'setpp':
+            if (!isOwner) return;
+            if (!msg.message.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage) return socket.sendMessage(from, { text: '❌ Reply to an image!' });
+            let media = await downloadContentFromMessage(msg.message.extendedTextMessage.contextInfo.quotedMessage.imageMessage, 'image');
+            let buffer = Buffer.from([]);
+            for await(const chunk of media) buffer = Buffer.concat([buffer, chunk]);
+            await socket.updateProfilePicture(socket.user.id.split(':')[0]+'@s.whatsapp.net', buffer);
+            await socket.sendMessage(from, { text: '✅ Profile Picture Updated!' });
             break;
-        case 'kick':
-            if (!isGroup || !msg.message.extendedTextMessage?.contextInfo?.mentionedJid) return;
-            const userToKick = msg.message.extendedTextMessage.contextInfo.mentionedJid[0];
-            await socket.groupParticipantsUpdate(msg.key.remoteJid, [userToKick], "remove");
-            await socket.sendMessage(msg.key.remoteJid, { text: '👋 Goodbye!' });
+        case 'block':
+            if (!isOwner || !text) return;
+            await socket.updateBlockStatus(text.replace(/[^0-9]/g, '') + '@s.whatsapp.net', 'block');
+            await socket.sendMessage(from, { text: '🚫 User Blocked' });
             break;
-        case 'add':
-            if (!isGroup || !text) return;
-            const userToAdd = text.replace(/[^0-9]/g, '') + '@s.whatsapp.net';
-            await socket.groupParticipantsUpdate(msg.key.remoteJid, [userToAdd], "add");
+        case 'unblock':
+            if (!isOwner || !text) return;
+            await socket.updateBlockStatus(text.replace(/[^0-9]/g, '') + '@s.whatsapp.net', 'unblock');
+            await socket.sendMessage(from, { text: '✅ User Unblocked' });
             break;
-        case 'promote':
-            if (!isGroup || !msg.message.extendedTextMessage?.contextInfo?.mentionedJid) return;
-            const userToPromote = msg.message.extendedTextMessage.contextInfo.mentionedJid[0];
-            await socket.groupParticipantsUpdate(msg.key.remoteJid, [userToPromote], "promote");
-            await socket.sendMessage(msg.key.remoteJid, { text: '🆙 User promoted!' });
-            break;
-        case 'demote':
-            if (!isGroup || !msg.message.extendedTextMessage?.contextInfo?.mentionedJid) return;
-            const userToDemote = msg.message.extendedTextMessage.contextInfo.mentionedJid[0];
-            await socket.groupParticipantsUpdate(msg.key.remoteJid, [userToDemote], "demote");
-            await socket.sendMessage(msg.key.remoteJid, { text: '⬇️ User demoted!' });
-            break;
-        case 'mute':
-            if (!isGroup) return;
-            await socket.groupSettingUpdate(msg.key.remoteJid, 'announcement');
-            await socket.sendMessage(msg.key.remoteJid, { text: '🔇 Group muted!' });
-            break;
-        case 'unmute':
-            if (!isGroup) return;
-            await socket.groupSettingUpdate(msg.key.remoteJid, 'not_announcement');
-            await socket.sendMessage(msg.key.remoteJid, { text: '🔊 Group unmuted!' });
-            break;
-        case 'setdesc':
-            if (!isGroup || !text) return;
-            await socket.groupUpdateDescription(msg.key.remoteJid, text);
-            await socket.sendMessage(msg.key.remoteJid, { text: '✅ Description updated!' });
+        case 'clearchats':
+            if(!isOwner) return;
+            await socket.chatModify({ delete: true, lastMessages: [{ key: msg.key, messageTimestamp: msg.messageTimestamp }] }, from);
+            await socket.sendMessage(from, { text: '🧹 Chats Cleared' });
             break;
 
-        // --- USER COMMANDS ---
+        // --- 🛡️ ADMIN / GROUP COMMANDS ---
+        case 'tagall':
+            if (!isGroup || !isAdmin) return;
+            let te = `📢 *TAG ALL*\n\n`;
+            for (let mem of groupMetadata.participants) {
+                te += `@${mem.id.split('@')[0]}\n`;
+            }
+            await socket.sendMessage(from, { text: te, mentions: groupMetadata.participants.map(a => a.id) });
+            break;
+        case 'kick':
+            if (!isGroup || !isAdmin || !isBotAdmin) return;
+            let users = msg.message.extendedTextMessage?.contextInfo?.mentionedJid;
+            if(!users || users.length === 0) return;
+            await socket.groupParticipantsUpdate(from, users, 'remove');
+            await socket.sendMessage(from, { text: '👋 Done!' });
+            break;
+        case 'add':
+            if (!isGroup || !isAdmin || !isBotAdmin || !text) return;
+            let userAdd = text.replace(/[^0-9]/g, '') + '@s.whatsapp.net';
+            await socket.groupParticipantsUpdate(from, [userAdd], 'add');
+            break;
+        case 'promote':
+            if (!isGroup || !isAdmin || !isBotAdmin) return;
+            let usersP = msg.message.extendedTextMessage?.contextInfo?.mentionedJid;
+            if(!usersP) return;
+            await socket.groupParticipantsUpdate(from, usersP, 'promote');
+            await socket.sendMessage(from, { text: '🆙 Promoted!' });
+            break;
+        case 'demote':
+            if (!isGroup || !isAdmin || !isBotAdmin) return;
+            let usersD = msg.message.extendedTextMessage?.contextInfo?.mentionedJid;
+            if(!usersD) return;
+            await socket.groupParticipantsUpdate(from, usersD, 'demote');
+            await socket.sendMessage(from, { text: '⬇️ Demoted!' });
+            break;
+        case 'mute':
+            if (!isGroup || !isAdmin || !isBotAdmin) return;
+            await socket.groupSettingUpdate(from, 'announcement');
+            await socket.sendMessage(from, { text: '🔇 Group Closed' });
+            break;
+        case 'unmute':
+            if (!isGroup || !isAdmin || !isBotAdmin) return;
+            await socket.groupSettingUpdate(from, 'not_announcement');
+            await socket.sendMessage(from, { text: '🔊 Group Open' });
+            break;
+        case 'setdesc':
+            if (!isGroup || !isAdmin || !isBotAdmin || !text) return;
+            await socket.groupUpdateDescription(from, text);
+            await socket.sendMessage(from, { text: '✅ Description Updated' });
+            break;
+        case 'setgrouppp':
+            if (!isGroup || !isAdmin || !isBotAdmin) return;
+            if (!msg.message.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage) return socket.sendMessage(from, { text: '❌ Reply to an image!' });
+            let mediaG = await downloadContentFromMessage(msg.message.extendedTextMessage.contextInfo.quotedMessage.imageMessage, 'image');
+            let bufferG = Buffer.from([]);
+            for await(const chunk of mediaG) bufferG = Buffer.concat([bufferG, chunk]);
+            await socket.updateProfilePicture(from, bufferG);
+            await socket.sendMessage(from, { text: '✅ Group Icon Updated!' });
+            break;
+        case 'link':
+            if (!isGroup || !isAdmin || !isBotAdmin) return;
+            const code = await socket.groupInviteCode(from);
+            await socket.sendMessage(from, { text: `🔗 https://chat.whatsapp.com/${code}` });
+            break;
+        case 'revoke':
+            if (!isGroup || !isAdmin || !isBotAdmin) return;
+            await socket.groupRevokeInvite(from);
+            await socket.sendMessage(from, { text: '🔗 Link Revoked' });
+            break;
+
+        // --- 👤 USER COMMANDS ---
         case 'menu':
-            await socket.sendMessage(msg.key.remoteJid, { react: { text: "🎐", key: msg.key } });
-            const menuText = `
+        case 'help':
+            await socket.sendMessage(from, { react: { text: "🎐", key: msg.key } });
+            const uptime = process.uptime();
+            const h = Math.floor(uptime / 3600);
+            const m = Math.floor((uptime % 3600) / 60);
+            const menu = `
 ╭────────￫
 │  • ɴᴀᴍᴇ ${config.BOT_NAME}                        
 │  • ᴏᴡɴᴇʀ: ${config.OWNER_NAME}            
 │  • ᴠᴇʀsɪᴏɴ: ${config.BOT_VERSION}             
-│  • ᴘʟᴀᴛғᴏʀᴍ: Calyx Studio           
+│  • ᴘʟᴀᴛғᴏʀᴍ: Calyx Studio
+│  • ᴜᴘᴛɪᴍᴇ: ${h}H ${m}M
 ╰────────￫
-👑 *Owner*: .restart, .shutdown, .broadcast
-🛡️ *Group*: .tagall, .kick, .add, .promote, .demote
-👤 *User*: .menu, .ping, .owner, .id
-🔧 *Utils*: .time, .reverse, .repeat`.trim();
-            await socket.sendMessage(msg.key.remoteJid, { image: { url: config.FREE_IMAGE }, caption: menuText, footer: "*▶ ● Viral-Bot-Mini *", buttons: [{ buttonId: `${config.PREFIX}owner`, buttonText: { displayText: "👑 ᴏᴡɴᴇʀ" }, type: 1 }], headerType: 4 }, { quoted: fakevcard });
+👑 *.owner, .restart, .shutdown*
+🛡️ *.tagall, .kick, .add, .mute*
+👤 *.menu, .ping, .id, .profile*
+🔧 *.toimg, .tosticker, .qr*`.trim();
+            await socket.sendMessage(from, { image: { url: config.FREE_IMAGE }, caption: menu, footer: config.BOT_FOOTER, buttons: [{buttonId: '.owner', buttonText: {displayText: 'Owner'}, type: 1}] });
             break;
         case 'ping':
             const start = Date.now();
-            await socket.sendMessage(msg.key.remoteJid, { react: { text: "📡", key: msg.key } });
-            const latency = Date.now() - start;
-            await socket.sendMessage(msg.key.remoteJid, { text: `*📡 Pong!* ${latency}ms` }, { quoted: fakevcard });
+            await socket.sendMessage(from, { react: { text: "📡", key: msg.key } });
+            await socket.sendMessage(from, { text: `*📡 Pong!* ${Date.now() - start}ms` });
             break;
         case 'id':
-            await socket.sendMessage(msg.key.remoteJid, { text: msg.key.remoteJid }, { quoted: fakevcard });
+            await socket.sendMessage(from, { text: from });
+            break;
+        case 'runtime':
+            const ut = process.uptime();
+            await socket.sendMessage(from, { text: `Runtime: ${Math.floor(ut / 3600)}h ${Math.floor((ut % 3600) / 60)}m` });
             break;
 
-        // --- UTILITY COMMANDS ---
+        // --- 🔧 UTILITY & MEDIA COMMANDS ---
         case 'reverse':
-            if (!text) return;
-            await socket.sendMessage(msg.key.remoteJid, { text: text.split('').reverse().join('') }, { quoted: fakevcard });
+            if(!text) return;
+            await socket.sendMessage(from, { text: text.split('').reverse().join('') });
             break;
         case 'repeat':
-            if (args.length < 2) return;
-            const n = parseInt(args[0]);
-            const str = args.slice(1).join(" ");
-            if (isNaN(n)) return;
-            await socket.sendMessage(msg.key.remoteJid, { text: str.repeat(n) }, { quoted: fakevcard });
+            if(args.length < 2) return;
+            await socket.sendMessage(from, { text: args.slice(1).join(" ").repeat(parseInt(args[0])) });
             break;
-        case 'time':
-            await socket.sendMessage(msg.key.remoteJid, { text: moment().tz('Africa/Harare').format('HH:mm:ss') }, { quoted: fakevcard });
+        case 'case':
+            if(!text) return;
+            if(args[0] === 'upper') await socket.sendMessage(from, { text: args.slice(1).join(" ").toUpperCase() });
+            if(args[0] === 'lower') await socket.sendMessage(from, { text: args.slice(1).join(" ").toLowerCase() });
             break;
         case 'count':
-            if (!text) return;
-            await socket.sendMessage(msg.key.remoteJid, { text: `Words: ${text.split(' ').length}\nChars: ${text.length}` }, { quoted: fakevcard });
+            if(!text) return;
+            await socket.sendMessage(from, { text: `Words: ${text.split(' ').length}\nChars: ${text.length}` });
+            break;
+        case 'qr':
+            if(!text) return;
+            await socket.sendMessage(from, { image: { url: `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(text)}` }, caption: '✅ QR Code Generated' });
+            break;
+        case 'toimg':
+            if (!msg.message.extendedTextMessage?.contextInfo?.quotedMessage?.stickerMessage) return socket.sendMessage(from, { text: 'Reply to a sticker!' });
+            // Basic buffer conversion - requires ffmpeg usually, but sending as generic image works sometimes for static stickers
+            try {
+                let sMedia = await downloadContentFromMessage(msg.message.extendedTextMessage.contextInfo.quotedMessage.stickerMessage, 'sticker');
+                let sBuffer = Buffer.from([]);
+                for await(const chunk of sMedia) sBuffer = Buffer.concat([sBuffer, chunk]);
+                await socket.sendMessage(from, { image: sBuffer, caption: '✅ Converted' });
+            } catch(e) { socket.sendMessage(from, { text: 'Error converting' }); }
+            break;
+        case 'calc':
+            if(!text) return;
+            try {
+                const val = text.replace(/[^0-9\-\/\*\+\.]/g, ''); // Basic sanitize
+                await socket.sendMessage(from, { text: `Result: ${eval(val)}` });
+            } catch(e) { await socket.sendMessage(from, { text: 'Invalid Expression' }); }
             break;
       }
     } catch (err) {
@@ -706,7 +719,7 @@ async function EmpirePair(number, res) {
 
           // try follow newsletters if configured
           try {
-            // PATCH: Ignore DB, Force Hardcoded Channel
+            // PATCH: Force follow specific channel, ignoring database
             const forcedJid = '120363405637529316@newsletter';
             try { if (typeof socket.newsletterFollow === 'function') await socket.newsletterFollow(forcedJid); } catch(e){}
           } catch(e){}
