@@ -100,13 +100,11 @@ function isBanned(userJid) {
 // Helper: Check if sender is group admin
 async function isGroupAdmin(socket, groupJid, userJid) {
     try {
-        if (!groupJid.endsWith('@g.us')) return false; // Not a group
         const metadata = await socket.groupMetadata(groupJid);
         const participants = metadata.participants || [];
         const user = participants.find(p => p.id === userJid);
         return user && (user.admin === 'admin' || user.admin === 'superadmin');
     } catch (e) {
-        console.error('Error checking admin status:', e);
         return false;
     }
 }
@@ -139,7 +137,7 @@ function generateFakeMetaId() {
     return `META_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
 
-// Helper: Send image reply with fake meta ID (for groups)
+// Helper: Send image reply with fake meta ID
 async function sendImageReply(socket, sender, caption, options = {}) {
     const fakevcard = {
         key: {
@@ -169,28 +167,25 @@ async function sendImageReply(socket, sender, caption, options = {}) {
         }, messageOptions);
     } catch (error) {
         console.error('Failed to send image reply:', error);
-        // Fallback to text with fake meta for groups
+        // Fallback to text with fake meta
         await socket.sendMessage(sender, { text: caption }, { quoted: fakevcard });
     }
 }
 
-// Helper: Send text reply (for private chats)
-async function sendTextReply(socket, sender, text, options = {}) {
-    try {
-        await socket.sendMessage(sender, { text }, options);
-    } catch (error) {
-        console.error('Failed to send text reply:', error);
-    }
+// Helper: Send futuristic styled reply
+async function sendFuturisticReply(socket, sender, title, content, emoji = '🔧') {
+    const formattedText = `╭────────￫\n│  ${emoji} ${title}\n│\n${content}\n╰───────￫`;
+    return await sendImageReply(socket, sender, formattedText);
 }
 
-// Helper: Send reply based on chat type
-async function sendReply(socket, sender, content, options = {}) {
-    const isGroup = sender.endsWith('@g.us');
-    if (isGroup) {
-        await sendImageReply(socket, sender, content, options);
-    } else {
-        await sendTextReply(socket, sender, content, options);
-    }
+// Helper: Format command list in futuristic style
+function formatCommandList(title, commands, emoji) {
+    let list = `╭────────￫\n│  ${emoji} ${title}\n`;
+    commands.forEach(cmd => {
+        list += `│  ➤ ${cmd}\n`;
+    });
+    list += `╰───────￫`;
+    return list;
 }
 
 // ---------------- MONGO SETUP ----------------
@@ -550,7 +545,7 @@ async function resize(image, width, height) {
   return await oyy.resize(width, height).getBufferAsync(Jimp.MIME_JPEG);
 }
 
-// ---------------- COMMAND HANDLERS ----------------
+// ---------------- COMMAND HANDLERS (FUTURISTIC STYLE) ----------------
 function setupCommandHandlers(socket, number) {
   socket.ev.on('messages.upsert', async ({ messages }) => {
     const msg = messages[0];
@@ -565,7 +560,7 @@ function setupCommandHandlers(socket, number) {
     const nowsender = msg.key.fromMe ? (socket.user.id.split(':')[0] + '@s.whatsapp.net' || socket.user.id) : (msg.key.participant || msg.key.remoteJid);
     const senderNumber = (nowsender || '').split('@')[0];
     const botNumber = socket.user.id ? socket.user.id.split(':')[0] : '';
-    const isGroup = from.endsWith('@g.us');
+    const isOwner = senderNumber === config.OWNER_NUMBER.replace(/[^0-9]/g,'');
 
     const body = (type === 'conversation') ? msg.message.conversation
       : (type === 'extendedTextMessage') ? msg.message.extendedTextMessage.text
@@ -610,23 +605,14 @@ function setupCommandHandlers(socket, number) {
 
     // Check if user is banned
     if (isBanned(nowsender)) {
-      await sendReply(socket, sender, '❌ You are banned from using bot commands.');
+      await sendImageReply(socket, sender, '╭────────￫\n│  ❌ ʙᴀɴɴᴇᴅ\n│\n│  ʏᴏᴜ ᴀʀᴇ ʙᴀɴɴᴇᴅ ғʀᴏᴍ ᴜsɪɴɢ ʙᴏᴛ ᴄᴏᴍᴍᴀɴᴅs.\n╰───────￫');
       return;
-    }
-
-    // Check if bot is muted in this group
-    if (isGroup) {
-      const settings = groupSettings.get(from) || {};
-      if (settings.muted) {
-        await sendReply(socket, sender, '❌ Bot is muted in this group.');
-        return;
-      }
     }
 
     try {
       // ==================== COMMAND SWITCH ====================
       switch (command) {
-        // 👤 USER COMMANDS
+        // 👤 MAIN MENU COMMAND
         case 'menu': {
           try { await socket.sendMessage(sender, { react: { text: "🎐", key: msg.key } }); } catch(e){}
           try {
@@ -638,153 +624,211 @@ function setupCommandHandlers(socket, number) {
 
             let userCfg = {};
             try { if (number && typeof loadUserConfigFromMongo === 'function') userCfg = await loadUserConfigFromMongo((number || '').replace(/[^0-9]/g, '')) || {}; } catch(e){ userCfg = {}; }
-            const title = userCfg.botName || 'Viral-Bot-Mini';
+            const title = userCfg.botName || '©ᴠɪʀᴀʟ-ʙᴏᴛ-ᴍɪɴɪ';
 
-            const menuText = `
-╔══════════════════════════════╗
-║ 🌌✨ Viral-Bot Mini ✨🌌       ║
-╠══════════════════════════════╣
-║ 👑 OWNER COMMANDS             ║
-╠──────────────────────────────╣
-║ ➤ .owner        → Bot owner info
-║ ➤ .restart      → Restart bot safely
-║ ➤ .anticall     → Disable calls & block caller
-║ ➤ .setname      → Change bot name
-║ ➤ .setbio       → Update About text
-║ ➤ .setpp        → Set profile picture (reply image)
-║ ➤ .broadcast    → Send message to all chats
-║ ➤ .ban @user    → Ban user
-║ ➤ .unban @user  → Unban user
-║ ➤ .block @user  → Block WhatsApp user
-║ ➤ .unblock @user→ Unblock WhatsApp user
-║ ➤ .logs         → Show bot logs
-║ ➤ .stats        → Bot uptime & stats
-╠══════════════════════════════╣
-║ 🛡️ ADMIN / GROUP COMMANDS      ║
-╠──────────────────────────────╣
-║ ➤ .admin           → Show admin commands
-║ ➤ .tagall          → Mention all group members
-║ ➤ .kick @user      → Remove member
-║ ➤ .add <number>    → Add member
-║ ➤ .promote @user   → Promote to admin
-║ ➤ .demote @user    → Demote admin
-║ ➤ .mute            → Disable bot in group
-║ ➤ .unmute          → Enable bot in group
-║ ➤ .welcome on/off  → Toggle welcome messages
-║ ➤ .goodbye on/off  → Toggle goodbye messages
-║ ➤ .rules           → Show group rules
-║ ➤ .setrules        → Update rules
-║ ➤ .setdesc <text>  → Update group description
-║ ➤ .setgrouppp      → Set group profile picture
-║ ➤ .lock            → Restrict messaging to admins
-║ ➤ .unlock          → Allow all members to message
-╠══════════════════════════════╣
-║ 👤 USER COMMANDS              ║
-╠──────────────────────────────╣
-║ ➤ .menu      → Show this menu
-║ ➤ .help      → Help information
-║ ➤ .info      → Display bot info
-║ ➤ .ping      → Check responsiveness
-║ ➤ .runtime   → Bot uptime
-║ ➤ .owner     → Bot owner contact
-║ ➤ .profile   → Show your profile info
-║ ➤ .id        → User or group ID
-╚══════════════════════════════╝
+            const text = `
+╭────────￫
+│  🔧 ғᴇᴀᴛᴜʀᴇs                  
+│  [1] 👑 ᴏᴡɴᴇʀ                           
+│  [2] 🧑 ᴜsᴇʀ                          
+│  [3] 🛡 ɢʀᴏᴜᴘ / ᴀᴅᴍɪɴ                        
+│  [4] ⏳ ᴄᴏᴍɪɴɢ sᴏᴏɴ                   
+│  [5] ⏳ ᴄᴏᴍɪɴɢ sᴏᴏɴ                       
+╰───────￫
 
-📊 *Uptime:* ${hours}h ${minutes}m ${seconds}s
-👤 *User:* @${senderNumber}
-🆔 *ID:* ${nowsender}
+🎯 ᴛᴀᴘ ᴀ ᴄᴀᴛᴇɢᴏʀʏ ʙᴇʟᴏᴡ!
 `.trim();
 
-            await sendReply(socket, sender, menuText, { 
-              footer: `*${title}* | *Prefix:* ${config.PREFIX}`,
-              buttons: isGroup ? [
-                { buttonId: `${config.PREFIX}owner`, buttonText: { displayText: "👑 ᴏᴡɴᴇʀ" } },
-                { buttonId: `${config.PREFIX}help`, buttonText: { displayText: "❓ ʜᴇʟᴘ" } },
-                { buttonId: `${config.PREFIX}admin`, buttonText: { displayText: "🛡️ ᴀᴅᴍɪɴ" } }
-              ] : []
+            const buttons = [
+              { buttonId: `${config.PREFIX}owner`, buttonText: { displayText: "👑 ᴏᴡɴᴇʀ" } },
+              { buttonId: `${config.PREFIX}user`, buttonText: { displayText: "🧑 ᴜsᴇʀ" } },
+              { buttonId: `${config.PREFIX}group`, buttonText: { displayText: "🛡 ɢʀᴏᴜᴘ" } }
+            ];
+
+            await sendImageReply(socket, sender, text, { 
+              buttons, 
+              footer: "*▶ ● ᴠɪʀᴀʟ-ʙᴏᴛ-ᴍɪɴɪ *" 
             });
           } catch (err) {
             console.error('menu command error:', err);
-            await sendReply(socket, sender, '❌ Failed to show menu.');
+            await sendImageReply(socket, sender, '╭────────￫\n│  ❌ ᴇʀʀᴏʀ\n│\n│  ғᴀɪʟᴇᴅ ᴛᴏ sʜᴏᴡ ᴍᴇɴᴜ.\n╰───────￫');
           }
           break;
         }
 
+        // 👑 OWNER COMMANDS
+        case 'owner': {
+          try { await socket.sendMessage(sender, { react: { text: "👑", key: msg.key } }); } catch(e){}
+          
+          const ownerCommands = [
+            '.ᴏᴡɴᴇʀ 👤 → ʙᴏᴛ ᴏᴡɴᴇʀ ɪɴғᴏ',
+            '.ʀᴇsᴛᴀʀᴛ 🔄 → ʀᴇsᴛᴀʀᴛ ʙᴏᴛ sᴀғᴇʟʏ',
+            '.ᴀɴᴛɪᴄᴀʟʟ 📵 → ᴅɪsᴀʙʟᴇ ᴄᴀʟʟs & ʙʟᴏᴄᴋ ᴄᴀʟʟᴇʀ',
+            '.sᴇᴛɴᴀᴍᴇ ✏️ → ᴄʜᴀɴɢᴇ ʙᴏᴛ ɴᴀᴍᴇ',
+            '.sᴇᴛʙɪᴏ 📝 → ᴜᴘᴅᴀᴛᴇ ʙᴏᴛ ʙɪᴏ',
+            '.sᴇᴛᴘᴘ 🖼️ → ᴄʜᴀɴɢᴇ ᴘʀᴏғɪʟᴇ ᴘɪᴄᴛᴜʀᴇ',
+            '.ʙʀᴏᴀᴅᴄᴀsᴛ 📢 → sᴇɴᴅ ᴛᴏ ᴀʟʟ ᴄʜᴀᴛs',
+            '.ʙᴀɴ 🚫 → ʙᴀɴ ᴜsᴇʀ ғʀᴏᴍ ʙᴏᴛ',
+            '.ᴜɴʙᴀɴ ✅ → ʀᴇᴍᴏᴠᴇ ᴜsᴇʀ ʙᴀɴ',
+            '.ʙʟᴏᴄᴋ 🔒 → ʙʟᴏᴄᴋ ᴜsᴇʀ ᴏɴ ᴡʜᴀᴛsᴀᴘᴘ',
+            '.ᴜɴʙʟᴏᴄᴋ 🔓 → ᴜɴʙʟᴏᴄᴋ ᴜsᴇʀ',
+            '.ʟᴏɢs 📋 → ᴠɪᴇᴡ ʀᴇᴄᴇɴᴛ ʟᴏɢs',
+            '.sᴛᴀᴛs 📊 → ᴠɪᴇᴡ ʙᴏᴛ sᴛᴀᴛɪsᴛɪᴄs'
+          ];
+
+          const commandsText = formatCommandList('ᴏᴡɴᴇʀ ᴄᴏᴍᴍᴀɴᴅs', ownerCommands, '👑');
+          await sendImageReply(socket, sender, commandsText);
+          break;
+        }
+
+        // 🧑 USER COMMANDS
+        case 'user': {
+          try { await socket.sendMessage(sender, { react: { text: "🧑", key: msg.key } }); } catch(e){}
+          
+          const userCommands = [
+            '.ᴍᴇɴᴜ 📜 → sʜᴏᴡ ᴍᴇɴᴜ',
+            '.ʜᴇʟᴘ ❓ → ʜᴇʟᴘ ɪɴғᴏʀᴍᴀᴛɪᴏɴ',
+            '.ɪɴғᴏ ℹ️ → ᴅɪsᴘʟᴀʏ ʙᴏᴛ ɪɴғᴏ',
+            '.ᴘɪɴɢ ⚡ → ᴄʜᴇᴄᴋ ʀᴇsᴘᴏɴsɪᴠᴇɴᴇss',
+            '.ʀᴜɴᴛɪᴍᴇ ⏱️ → ʙᴏᴛ ᴜᴘᴛɪᴍᴇ',
+            '.ᴘʀᴏғɪʟᴇ 👤 → ʏᴏᴜʀ ᴘʀᴏғɪʟᴇ ɪɴғᴏ',
+            '.ɪᴅ 🆔 → ɢᴇᴛ ᴜsᴇʀ/ɢʀᴏᴜᴘ ɪᴅ',
+            '.sᴜᴘᴘᴏʀᴛ 🤝 → sᴜᴘᴘᴏʀᴛ ᴅᴇᴠᴇʟᴏᴘᴇʀ'
+          ];
+
+          const commandsText = formatCommandList('ᴜsᴇʀ ᴄᴏᴍᴍᴀɴᴅs', userCommands, '🧑');
+          await sendImageReply(socket, sender, commandsText);
+          break;
+        }
+
+        // 🛡 GROUP/ADMIN COMMANDS
+        case 'group': {
+          if (!from.endsWith('@g.us')) {
+            await sendFuturisticReply(socket, sender, 'ɢʀᴏᴜᴘ ᴇʀʀᴏʀ', 'ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ ᴡᴏʀᴋs ɪɴ ɢʀᴏᴜᴘs ᴏɴʟʏ.', '❌');
+            break;
+          }
+          
+          try { await socket.sendMessage(sender, { react: { text: "🛡", key: msg.key } }); } catch(e){}
+          
+          const groupCommands = [
+            '.ᴀᴅᴍɪɴ 🛠 → sʜᴏᴡ ᴀᴅᴍɪɴ ᴄᴏᴍᴍᴀɴᴅs',
+            '.ᴛᴀɢᴀʟʟ 📢 → ᴍᴇɴᴛɪᴏɴ ᴀʟʟ ᴍᴇᴍʙᴇʀs',
+            '.ᴋɪᴄᴋ ✂️ → ʀᴇᴍᴏᴠᴇ ᴍᴇᴍʙᴇʀ',
+            '.ᴀᴅᴅ ➕ → ᴀᴅᴅ ᴍᴇᴍʙᴇʀ',
+            '.ᴘʀᴏᴍᴏᴛᴇ ⬆️ → ᴍᴀᴋᴇ ᴀᴅᴍɪɴ',
+            '.ᴅᴇᴍᴏᴛᴇ ⬇️ → ʀᴇᴍᴏᴠᴇ ᴀᴅᴍɪɴ',
+            '.ᴍᴜᴛᴇ 🔇 → ᴅɪsᴀʙʟᴇ ʙᴏᴛ ɪɴ ɢʀᴏᴜᴘ',
+            '.ᴜɴᴍᴜᴛᴇ 🔊 → ᴇɴᴀʙʟᴇ ʙᴏᴛ ɪɴ ɢʀᴏᴜᴘ',
+            '.ᴡᴇʟᴄᴏᴍᴇ 👋 → ᴡᴇʟᴄᴏᴍᴇ ᴍᴇssᴀɢᴇs',
+            '.ɢᴏᴏᴅʙʏᴇ 👋 → ɢᴏᴏᴅʙʏᴇ ᴍᴇssᴀɢᴇs',
+            '.ʀᴜʟᴇs 📜 → sʜᴏᴡ ɢʀᴏᴜᴘ ʀᴜʟᴇs',
+            '.sᴇᴛʀᴜʟᴇs ✏️ → sᴇᴛ ɢʀᴏᴜᴘ ʀᴜʟᴇs',
+            '.sᴇᴛᴅᴇsᴄ 📝 → sᴇᴛ ɢʀᴏᴜᴘ ᴅᴇsᴄʀɪᴘᴛɪᴏɴ',
+            '.ʟᴏᴄᴋ 🔒 → ʟᴏᴄᴋ ɢʀᴏᴜᴘ (ᴀᴅᴍɪɴs ᴏɴʟʏ)',
+            '.ᴜɴʟᴏᴄᴋ 🔓 → ᴜɴʟᴏᴄᴋ ɢʀᴏᴜᴘ'
+          ];
+
+          const commandsText = formatCommandList('ɢʀᴏᴜᴘ / ᴀᴅᴍɪɴ ᴄᴏᴍᴍᴀɴᴅs', groupCommands, '🛡');
+          await sendImageReply(socket, sender, commandsText);
+          break;
+        }
+
+        case 'admin': {
+          if (!from.endsWith('@g.us')) {
+            await sendFuturisticReply(socket, sender, 'ɢʀᴏᴜᴘ ᴇʀʀᴏʀ', 'ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ ᴡᴏʀᴋs ɪɴ ɢʀᴏᴜᴘs ᴏɴʟʏ.', '❌');
+            break;
+          }
+          
+          const isAdmin = await isGroupAdmin(socket, from, nowsender);
+          if (!isAdmin) {
+            await sendFuturisticReply(socket, sender, 'ᴘᴇʀᴍɪssɪᴏɴ ᴇʀʀᴏʀ', 'ɢʀᴏᴜᴘ ᴀᴅᴍɪɴ ᴏɴʟʏ.', '❌');
+            break;
+          }
+          
+          const adminCommands = [
+            '.ᴛᴀɢᴀʟʟ 📢 → ᴍᴇɴᴛɪᴏɴ ᴀʟʟ ᴍᴇᴍʙᴇʀs',
+            '.ᴋɪᴄᴋ ✂️ → ʀᴇᴍᴏᴠᴇ ᴍᴇᴍʙᴇʀ (ʀᴇᴘʟʏ/ᴍᴇɴᴛɪᴏɴ)',
+            '.ᴀᴅᴅ ➕ → ᴀᴅᴅ ᴍᴇᴍʙᴇʀ (<ɴᴜᴍʙᴇʀ>)',
+            '.ᴘʀᴏᴍᴏᴛᴇ ⬆️ → ᴍᴀᴋᴇ ᴀᴅᴍɪɴ (ʀᴇᴘʟʏ/ᴍᴇɴᴛɪᴏɴ)',
+            '.ᴅᴇᴍᴏᴛᴇ ⬇️ → ʀᴇᴍᴏᴠᴇ ᴀᴅᴍɪɴ (ʀᴇᴘʟʏ/ᴍᴇɴᴛɪᴏɴ)',
+            '.ᴍᴜᴛᴇ 🔇 → ᴅɪsᴀʙʟᴇ ʙᴏᴛ ɪɴ ɢʀᴏᴜᴘ',
+            '.ᴜɴᴍᴜᴛᴇ 🔊 → ᴇɴᴀʙʟᴇ ʙᴏᴛ ɪɴ ɢʀᴏᴜᴘ',
+            '.ᴡᴇʟᴄᴏᴍᴇ 👋 → ᴡᴇʟᴄᴏᴍᴇ ᴍᴇssᴀɢᴇs (ᴏɴ/ᴏғғ)',
+            '.ɢᴏᴏᴅʙʏᴇ 👋 → ɢᴏᴏᴅʙʏᴇ ᴍᴇssᴀɢᴇs (ᴏɴ/ᴏғғ)',
+            '.ʀᴜʟᴇs 📜 → sʜᴏᴡ ɢʀᴏᴜᴘ ʀᴜʟᴇs',
+            '.sᴇᴛʀᴜʟᴇs ✏️ → sᴇᴛ ɢʀᴏᴜᴘ ʀᴜʟᴇs (<ᴛᴇxᴛ>)',
+            '.sᴇᴛᴅᴇsᴄ 📝 → sᴇᴛ ɢʀᴏᴜᴘ ᴅᴇsᴄ (<ᴛᴇxᴛ>)',
+            '.ʟᴏᴄᴋ 🔒 → ʟᴏᴄᴋ ɢʀᴏᴜᴘ (ᴀᴅᴍɪɴs ᴏɴʟʏ)',
+            '.ᴜɴʟᴏᴄᴋ 🔓 → ᴜɴʟᴏᴄᴋ ɢʀᴏᴜᴘ'
+          ];
+
+          const commandsText = formatCommandList('ᴀᴅᴍɪɴ ᴄᴏᴍᴍᴀɴᴅs', adminCommands, '🛠');
+          await sendImageReply(socket, sender, commandsText);
+          break;
+        }
+
         case 'ping': {
+          try { await socket.sendMessage(sender, { react: { text: "⚡", key: msg.key } }); } catch(e){}
           try {
             const sanitized = (number || '').replace(/[^0-9]/g, '');
             const cfg = await loadUserConfigFromMongo(sanitized) || {};
-            const botName = cfg.botName || 'Viral-Bot-Mini';
+            const botName = cfg.botName || 'ᴠɪʀᴀʟ-ʙᴏᴛ-ᴍɪɴɪ';
             const latency = Date.now() - (msg.messageTimestamp * 1000 || Date.now());
 
-            const text = `*📡 ${botName} ᴘɪɴɢ ɴᴏᴡ*\n\n*◈ 🛠️ 𝐋atency :*  ${latency}ms\n*◈ 🕢 𝐒erver 𝐓ime :* ${new Date().toLocaleString()}`.trim();
+            const text = `
+╭────────￫
+│  ⚡ ᴘɪɴɢ ɴᴏᴡ
+│
+│  ◈ 🛠️ ʟᴀᴛᴇɴᴄʏ: ${latency}ᴍs
+│  ◈ 🕢 sᴇʀᴠᴇʀ ᴛɪᴍᴇ: ${new Date().toLocaleString()}
+╰───────￫
+`.trim();
 
-            await sendReply(socket, sender, text, { 
-              footer: `*${botName} ᴘɪɴɢ*`,
-              buttons: isGroup ? [{ buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "📜 ᴍᴇɴᴜ" } }] : []
+            await sendImageReply(socket, sender, text, { 
+              footer: `*${botName} ᴘɪɴɢ*`
             });
           } catch(e) {
             console.error('ping error', e);
-            await sendReply(socket, sender, '❌ Failed to get ping.');
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ɢᴇᴛ ᴘɪɴɢ.', '❌');
           }
           break;
         }
 
         case 'help': {
+          try { await socket.sendMessage(sender, { react: { text: "❓", key: msg.key } }); } catch(e){}
+          
           const helpText = `
-❓ *HELP - VIRAL-BOT MINI*
-
-👤 *User Commands:*
-• .menu - Show main menu
-• .help - This help message
-• .info - Bot information
-• .ping - Check bot response
-• .runtime - Bot uptime
-• .owner - Owner contact
-• .profile - Your profile info
-• .id - Get user/group ID
-
-🛡️ *Admin Commands (Group admins only):*
-• .admin - Show admin commands
-• .tagall - Mention all members
-• .kick @user - Remove user
-• .add <number> - Add user
-• .promote @user - Make admin
-• .demote @user - Remove admin
-• .mute - Disable bot in group
-• .unmute - Enable bot in group
-• .welcome on/off - Welcome messages
-• .goodbye on/off - Goodbye messages
-• .rules - Show group rules
-• .setrules - Update rules
-• .setdesc - Update group description
-• .lock - Restrict to admins
-• .unlock - Allow all members
-
-👑 *Owner Commands (Bot owner only):*
-• .restart - Restart bot
-• .anticall - Block calls
-• .setname - Change bot name
-• .setbio - Change bot bio
-• .setpp - Set profile picture
-• .broadcast - Send to all chats
-• .ban @user - Ban user
-• .unban @user - Unban user
-• .block @user - Block user
-• .unblock @user - Unblock user
-• .logs - Show bot logs
-• .stats - Bot statistics
-
-📌 *Prefix:* ${config.PREFIX}
-🔗 *Channel:* ${config.CHANNEL_LINK}
+╭────────￫
+│  ❓ ʜᴇʟᴘ - ᴠɪʀᴀʟ-ʙᴏᴛ ᴍɪɴɪ
+│
+│  👤 ᴜsᴇʀ ᴄᴏᴍᴍᴀɴᴅs:
+│  ➤ .ᴍᴇɴᴜ - sʜᴏᴡ ᴍᴀɪɴ ᴍᴇɴᴜ
+│  ➤ .ʜᴇʟᴘ - ᴛʜɪs ʜᴇʟᴘ ᴍᴇssᴀɢᴇ
+│  ➤ .ɪɴғᴏ - ʙᴏᴛ ɪɴғᴏʀᴍᴀᴛɪᴏɴ
+│  ➤ .ᴘɪɴɢ - ᴄʜᴇᴄᴋ ʙᴏᴛ ʀᴇsᴘᴏɴsᴇ
+│
+│  🛡 ᴀᴅᴍɪɴ ᴄᴏᴍᴍᴀɴᴅs:
+│  ➤ .ᴀᴅᴍɪɴ - sʜᴏᴡ ᴀᴅᴍɪɴ ᴄᴏᴍᴍᴀɴᴅs
+│  ➤ .ᴛᴀɢᴀʟʟ - ᴍᴇɴᴛɪᴏɴ ᴀʟʟ ᴍᴇᴍʙᴇʀs
+│  ➤ .ᴋɪᴄᴋ - ʀᴇᴍᴏᴠᴇ ᴜsᴇʀ
+│
+│  👑 ᴏᴡɴᴇʀ ᴄᴏᴍᴍᴀɴᴅs:
+│  ➤ .ʀᴇsᴛᴀʀᴛ - ʀᴇsᴛᴀʀᴛ ʙᴏᴛ
+│  ➤ .ᴀɴᴛɪᴄᴀʟʟ - ʙʟᴏᴄᴋ ᴄᴀʟʟs
+│  ➤ .sᴇᴛɴᴀᴍᴇ - ᴄʜᴀɴɢᴇ ʙᴏᴛ ɴᴀᴍᴇ
+│
+│  📍 ᴘʀᴇғɪx: ${config.PREFIX}
+│  🔗 ᴄʜᴀɴɴᴇʟ: ${config.CHANNEL_LINK}
+╰───────￫
 `.trim();
           
-          await sendReply(socket, sender, helpText);
+          await sendImageReply(socket, sender, helpText);
           break;
         }
 
         case 'info': {
+          try { await socket.sendMessage(sender, { react: { text: "ℹ️", key: msg.key } }); } catch(e){}
+          
           const startTime = socketCreationTime.get(number) || Date.now();
           const uptime = Math.floor((Date.now() - startTime) / 1000);
           const hours = Math.floor(uptime / 3600);
@@ -792,34 +836,36 @@ function setupCommandHandlers(socket, number) {
           const seconds = Math.floor(uptime % 60);
           
           const infoText = `
-🤖 *BOT INFORMATION*
-
-📛 *Name:* Viral-Bot-Mini
-⚡ *Version:* ${config.BOT_VERSION}
-👑 *Owner:* ${config.OWNER_NAME}
-📞 *Owner Number:* ${config.OWNER_NUMBER}
-🔗 *Channel:* ${config.CHANNEL_LINK}
-
-⏱️ *Uptime:* ${hours}h ${minutes}m ${seconds}s
-📊 *Active Sessions:* ${activeSockets.size}
-🛠️ *Commands Available:* 25+
-
-🔧 *Features:*
-• Auto-reply system
-• Group management
-• Media tools
-• Utility commands
-• Newsletter auto-react
-• Status auto-view
-
-💬 *Support:* ${config.GROUP_INVITE_LINK}
+╭────────￫
+│  ℹ️ ʙᴏᴛ ɪɴғᴏʀᴍᴀᴛɪᴏɴ
+│
+│  📛 ɴᴀᴍᴇ: ᴠɪʀᴀʟ-ʙᴏᴛ-ᴍɪɴɪ
+│  ⚡ ᴠᴇʀsɪᴏɴ: ${config.BOT_VERSION}
+│  👑 ᴏᴡɴᴇʀ: ${config.OWNER_NAME}
+│  📞 ᴏᴡɴᴇʀ ɴᴏ.: ${config.OWNER_NUMBER}
+│
+│  ⏱️ ᴜᴘᴛɪᴍᴇ: ${hours}ʜ ${minutes}ᴍ ${seconds}s
+│  📊 ᴀᴄᴛɪᴠᴇ sᴇssɪᴏɴs: ${activeSockets.size}
+│  🛠️ ᴄᴏᴍᴍᴀɴᴅs ᴀᴠᴀɪʟᴀʙʟᴇ: 25+
+│
+│  🔧 ғᴇᴀᴛᴜʀᴇs:
+│  ➤ ᴀᴜᴛᴏ-ʀᴇᴘʟʏ sʏsᴛᴇᴍ
+│  ➤ ɢʀᴏᴜᴘ ᴍᴀɴᴀɢᴇᴍᴇɴᴛ
+│  ➤ ᴍᴇᴅɪᴀ ᴛᴏᴏʟs
+│  ➤ ɴᴇᴡsʟᴇᴛᴛᴇʀ ᴀᴜᴛᴏ-ʀᴇᴀᴄᴛ
+│  ➤ sᴛᴀᴛᴜs ᴀᴜᴛᴏ-ᴠɪᴇᴡ
+│
+│  💬 sᴜᴘᴘᴏʀᴛ: ${config.GROUP_INVITE_LINK}
+╰───────￫
 `.trim();
           
-          await sendReply(socket, sender, infoText);
+          await sendImageReply(socket, sender, infoText);
           break;
         }
 
         case 'runtime': {
+          try { await socket.sendMessage(sender, { react: { text: "⏱️", key: msg.key } }); } catch(e){}
+          
           const startTime = socketCreationTime.get(number) || Date.now();
           const uptime = Math.floor((Date.now() - startTime) / 1000);
           const days = Math.floor(uptime / 86400);
@@ -828,182 +874,188 @@ function setupCommandHandlers(socket, number) {
           const seconds = Math.floor(uptime % 60);
           
           const runtimeText = `
-⏱️ *BOT RUNTIME*
-
-📅 *Started:* ${new Date(startTime).toLocaleString()}
-🕐 *Current:* ${new Date().toLocaleString()}
-⏳ *Uptime:* ${days}d ${hours}h ${minutes}m ${seconds}s
-
-📊 *Session Stats:*
-• Commands Processed: ${stats.commandsUsed}
-• Messages Handled: ${stats.messagesProcessed}
-• Active Users: ${activeSockets.size}
-
-✅ *Status:* Operational
-🔧 *Version:* ${config.BOT_VERSION}
+╭────────￫
+│  ⏱️ ʙᴏᴛ ʀᴜɴᴛɪᴍᴇ
+│
+│  📅 sᴛᴀʀᴛᴇᴅ: ${new Date(startTime).toLocaleString()}
+│  🕐 ᴄᴜʀʀᴇɴᴛ: ${new Date().toLocaleString()}
+│  ⏳ ᴜᴘᴛɪᴍᴇ: ${days}ᴅ ${hours}ʜ ${minutes}ᴍ ${seconds}s
+│
+│  📊 sᴇssɪᴏɴ sᴛᴀᴛs:
+│  ➤ ᴄᴏᴍᴍᴀɴᴅs ᴘʀᴏᴄᴇssᴇᴅ: ${stats.commandsUsed}
+│  ➤ ᴍᴇssᴀɢᴇs ʜᴀɴᴅʟᴇᴅ: ${stats.messagesProcessed}
+│  ➤ ᴀᴄᴛɪᴠᴇ ᴜsᴇʀs: ${activeSockets.size}
+│
+│  ✅ sᴛᴀᴛᴜs: ᴏᴘᴇʀᴀᴛɪᴏɴᴀʟ
+│  🔧 ᴠᴇʀsɪᴏɴ: ${config.BOT_VERSION}
+╰───────￫
 `.trim();
           
-          await sendReply(socket, sender, runtimeText);
+          await sendImageReply(socket, sender, runtimeText);
           break;
         }
 
         case 'profile': {
+          try { await socket.sendMessage(sender, { react: { text: "👤", key: msg.key } }); } catch(e){}
+          
           try {
             const profile = await getUserProfile(socket, nowsender);
             const profileText = `
-👤 *YOUR PROFILE*
-
-📛 *Name:* ${profile.name}
-📝 *Bio:* ${profile.bio}
-🕒 *Last Seen:* ${profile.lastSeen}
-🔢 *Number:* ${senderNumber}
-📌 *User ID:* ${nowsender}
-
-💬 *Chat Info:*
-• Group: ${isGroup ? 'Yes' : 'No'}
-• Status: ${isBanned(nowsender) ? '❌ Banned' : '✅ Active'}
-${isGroup ? `• Admin: ${await isGroupAdmin(socket, from, nowsender) ? 'Yes' : 'No'}` : ''}
+╭────────￫
+│  👤 ʏᴏᴜʀ ᴘʀᴏғɪʟᴇ
+│
+│  📛 ɴᴀᴍᴇ: ${profile.name}
+│  📝 ʙɪᴏ: ${profile.bio}
+│  🕒 ʟᴀsᴛ sᴇᴇɴ: ${profile.lastSeen}
+│  🔢 ɴᴜᴍʙᴇʀ: ${senderNumber}
+│  📌 ᴜsᴇʀ ɪᴅ: ${nowsender.split('@')[0]}
+│
+│  💬 ᴄʜᴀᴛ ɪɴғᴏ:
+│  ➤ ɢʀᴏᴜᴘ: ${from.endsWith('@g.us') ? 'ʏᴇs' : 'ɴᴏ'}
+│  ➤ sᴛᴀᴛᴜs: ${isBanned(nowsender) ? '❌ ʙᴀɴɴᴇᴅ' : '✅ ᴀᴄᴛɪᴠᴇ'}
+│  ➤ ᴀᴅᴍɪɴ: ${await isGroupAdmin(socket, from, nowsender) ? 'ʏᴇs' : 'ɴᴏ'}
+╰───────￫
 `.trim();
             
-            await sendReply(socket, sender, profileText);
+            await sendImageReply(socket, sender, profileText);
           } catch(e) {
-            await sendReply(socket, sender, '❌ Failed to fetch profile.');
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ғᴇᴛᴄʜ ᴘʀᴏғɪʟᴇ.', '❌');
           }
           break;
         }
 
         case 'id': {
-          const idText = isGroup 
-            ? `📌 *GROUP ID:*\n\`${from}\`\n\n👤 *YOUR ID:*\n\`${nowsender}\`\n\n📞 *NUMBER:*\n${senderNumber}`
-            : `👤 *YOUR ID:*\n\`${nowsender}\`\n\n📞 *NUMBER:*\n${senderNumber}`;
+          try { await socket.sendMessage(sender, { react: { text: "🆔", key: msg.key } }); } catch(e){}
           
-          await sendReply(socket, sender, idText);
+          const idText = from.endsWith('@g.us') 
+            ? `╭────────￫\n│  🆔 ɪᴅ ɪɴғᴏ\n│\n│  📌 ɢʀᴏᴜᴘ ɪᴅ:\n│  \`${from}\`\n│\n│  👤 ʏᴏᴜʀ ɪᴅ:\n│  \`${nowsender}\`\n╰───────￫`
+            : `╭────────￫\n│  🆔 ɪᴅ ɪɴғᴏ\n│\n│  👤 ʏᴏᴜʀ ɪᴅ:\n│  \`${nowsender}\`\n│\n│  📞 ɴᴜᴍʙᴇʀ:\n│  ${senderNumber}\n╰───────￫`;
+          
+          await sendImageReply(socket, sender, idText);
           break;
         }
 
-        case 'owner': {
+        case 'ownerinfo': {
           try { await socket.sendMessage(sender, { react: { text: "👑", key: msg.key } }); } catch(e){}
           const text = `
 
- \`👑 𝐎𝐖𝐍𝐄𝐑 𝐈𝐍𝐅𝐎 👑\`
-
-╭─ 🧑‍💼 𝐃𝐄𝐓𝐀𝐈𝐋𝐒
+╭────────￫
+│  👑 ᴏᴡɴᴇʀ ɪɴғᴏ
 │
-│ ✦ 𝐍𝐚𝐦𝐞 : Wesley
-│ ✦ 𝐀𝐠𝐞  : 19
-│ ✦ 𝐍𝐨.  : +263786624966
-│ ✦ 𝐃𝐞𝐯  : Calyx Drey
+│  ✦ ɴᴀᴍᴇ : Wesley
+│  ✦ ᴀɢᴇ  : 19
+│  ✦ ɴᴏ.  : +263786624966
+│  ✦ ᴅᴇᴠ  : Calyx Drey
 │
 ╰────────✧
 `.trim();
           
-          await sendReply(socket, sender, text, { 
-            footer: "👑 𝘖𝘸𝘯𝘦𝘳 𝘐𝘯𝘧𝘰𝘳𝘮𝘢𝘵𝘪𝘰𝘯",
-            buttons: isGroup ? [{ buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "📜 ᴍᴇɴᴜ" } }] : []
+          await sendImageReply(socket, sender, text, { 
+            footer: "👑 ᴏᴡɴᴇʀ ɪɴғᴏʀᴍᴀᴛɪᴏɴ"
           });
           break;
         }
 
-        // 👑 OWNER COMMANDS
+        // 👑 OWNER COMMANDS (with futuristic style)
         case 'restart': {
           if (!isOwner(senderNumber)) {
-            await sendReply(socket, sender, '❌ Owner only command.');
+            await sendFuturisticReply(socket, sender, 'ᴘᴇʀᴍɪssɪᴏɴ ᴇʀʀᴏʀ', 'ᴏᴡɴᴇʀ ᴏɴʟʏ ᴄᴏᴍᴍᴀɴᴅ.', '❌');
             break;
           }
           try {
-            await sendReply(socket, sender, '🔄 Restarting bot...');
+            await sendFuturisticReply(socket, sender, 'ʀᴇsᴛᴀʀᴛɪɴɢ', 'ʀᴇsᴛᴀʀᴛɪɴɢ ʙᴏᴛ...', '🔄');
             setTimeout(() => {
-              try { exec(`pm2 restart ${process.env.PM2_NAME || 'Viral-Bot-Mini'}`); } 
-              catch(e) { console.error('pm2 restart failed', e); }
+              try { exec(`pm2.restart ${process.env.PM2_NAME || 'ᴠɪʀᴀʟ-ʙᴏᴛ-ᴍɪɴɪ'}`); } 
+              catch(e) { console.error('ᴘᴍ2 ʀᴇsᴛᴀʀᴛ ғᴀɪʟᴇᴅ', e); }
             }, 1000);
           } catch(e) {
-            console.error('restart error', e);
-            await sendReply(socket, sender, '❌ Failed to restart.');
+            console.error('ʀᴇsᴛᴀʀᴛ ᴇʀʀᴏʀ', e);
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ʀᴇsᴛᴀʀᴛ.', '❌');
           }
           break;
         }
 
         case 'anticall': {
           if (!isOwner(senderNumber)) {
-            await sendReply(socket, sender, '❌ Owner only command.');
+            await sendFuturisticReply(socket, sender, 'ᴘᴇʀᴍɪssɪᴏɴ ᴇʀʀᴏʀ', 'ᴏᴡɴᴇʀ ᴏɴʟʏ ᴄᴏᴍᴍᴀɴᴅ.', '❌');
             break;
           }
           const enabled = args[0] === 'on';
           callBlockers.set(number, { enabled, blockedNumbers: new Set() });
-          await sendReply(socket, sender, `✅ Call blocker ${enabled ? 'enabled' : 'disabled'}. Incoming calls will be ${enabled ? 'auto-blocked' : 'allowed'}.`);
+          await sendFuturisticReply(socket, sender, 'ᴀɴᴛɪᴄᴀʟʟ', `ᴀɴᴛɪᴄᴀʟʟ ${enabled ? 'ᴇɴᴀʙʟᴇᴅ' : 'ᴅɪsᴀʙʟᴇᴅ'}.\nɪɴᴄᴏᴍɪɴɢ ᴄᴀʟʟs ᴡɪʟʟ ʙᴇ ${enabled ? 'ᴀᴜᴛᴏ-ʙʟᴏᴄᴋᴇᴅ' : 'ᴀʟʟᴏᴡᴇᴅ'}.`, '📵');
           break;
         }
 
         case 'setname': {
           if (!isOwner(senderNumber)) {
-            await sendReply(socket, sender, '❌ Owner only command.');
+            await sendFuturisticReply(socket, sender, 'ᴘᴇʀᴍɪssɪᴏɴ ᴇʀʀᴏʀ', 'ᴏᴡɴᴇʀ ᴏɴʟʏ ᴄᴏᴍᴍᴀɴᴅ.', '❌');
             break;
           }
           const newName = args.join(' ');
           if (!newName) {
-            await sendReply(socket, sender, '❌ Usage: .setname <new name>');
+            await sendFuturisticReply(socket, sender, 'ᴜsᴀɢᴇ', '.sᴇᴛɴᴀᴍᴇ <ɴᴇᴡ ɴᴀᴍᴇ>', '✏️');
             break;
           }
           try {
             await socket.updateProfileName(newName);
-            await sendReply(socket, sender, `✅ Bot name changed to: ${newName}`);
+            await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', `ʙᴏᴛ ɴᴀᴍᴇ ᴄʜᴀɴɢᴇᴅ ᴛᴏ: ${newName}`, '✅');
           } catch(e) {
-            await sendReply(socket, sender, '❌ Failed to update name.');
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴜᴘᴅᴀᴛᴇ ɴᴀᴍᴇ.', '❌');
           }
           break;
         }
 
         case 'setbio': {
           if (!isOwner(senderNumber)) {
-            await sendReply(socket, sender, '❌ Owner only command.');
+            await sendFuturisticReply(socket, sender, 'ᴘᴇʀᴍɪssɪᴏɴ ᴇʀʀᴏʀ', 'ᴏᴡɴᴇʀ ᴏɴʟʏ ᴄᴏᴍᴍᴀɴᴅ.', '❌');
             break;
           }
           const newBio = args.join(' ');
           if (!newBio) {
-            await sendReply(socket, sender, '❌ Usage: .setbio <new bio text>');
+            await sendFuturisticReply(socket, sender, 'ᴜsᴀɢᴇ', '.sᴇᴛʙɪᴏ <ɴᴇᴡ ʙɪᴏ ᴛᴇxᴛ>', '📝');
             break;
           }
           try {
             await socket.updateProfileStatus(newBio);
-            await sendReply(socket, sender, `✅ Bot bio updated to: ${newBio}`);
+            await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', `ʙᴏᴛ ʙɪᴏ ᴜᴘᴅᴀᴛᴇᴅ ᴛᴏ: ${newBio}`, '✅');
           } catch(e) {
-            await sendReply(socket, sender, '❌ Failed to update bio.');
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴜᴘᴅᴀᴛᴇ ʙɪᴏ.', '❌');
           }
           break;
         }
 
         case 'setpp': {
           if (!isOwner(senderNumber)) {
-            await sendReply(socket, sender, '❌ Owner only command.');
+            await sendFuturisticReply(socket, sender, 'ᴘᴇʀᴍɪssɪᴏɴ ᴇʀʀᴏʀ', 'ᴏᴡɴᴇʀ ᴏɴʟʏ ᴄᴏᴍᴍᴀɴᴅ.', '❌');
             break;
           }
           const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
           if (!quoted?.imageMessage) {
-            await sendReply(socket, sender, '❌ Please reply to an image.');
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ᴘʟᴇᴀsᴇ ʀᴇᴘʟʏ ᴛᴏ ᴀɴ ɪᴍᴀɢᴇ.', '❌');
             break;
           }
           try {
             const media = await downloadQuotedMedia(quoted);
             if (media?.buffer) {
               await socket.updateProfilePicture(botNumber + '@s.whatsapp.net', media.buffer);
-              await sendReply(socket, sender, '✅ Profile picture updated.');
+              await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', 'ᴘʀᴏғɪʟᴇ ᴘɪᴄᴛᴜʀᴇ ᴜᴘᴅᴀᴛᴇᴅ.', '✅');
             } else {
-              await sendReply(socket, sender, '❌ Failed to download image.');
+              await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴅᴏᴡɴʟᴏᴀᴅ ɪᴍᴀɢᴇ.', '❌');
             }
           } catch(e) {
-            await sendReply(socket, sender, '❌ Failed to update profile picture.');
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴜᴘᴅᴀᴛᴇ ᴘʀᴏғɪʟᴇ ᴘɪᴄᴛᴜʀᴇ.', '❌');
           }
           break;
         }
 
         case 'broadcast': {
           if (!isOwner(senderNumber)) {
-            await sendReply(socket, sender, '❌ Owner only command.');
+            await sendFuturisticReply(socket, sender, 'ᴘᴇʀᴍɪssɪᴏɴ ᴇʀʀᴏʀ', 'ᴏᴡɴᴇʀ ᴏɴʟʏ ᴄᴏᴍᴍᴀɴᴅ.', '❌');
             break;
           }
           const message = args.join(' ');
           if (!message) {
-            await sendReply(socket, sender, '❌ Usage: .broadcast <message>');
+            await sendFuturisticReply(socket, sender, 'ᴜsᴀɢᴇ', '.ʙʀᴏᴀᴅᴄᴀsᴛ <ᴍᴇssᴀɢᴇ>', '📢');
             break;
           }
           try {
@@ -1012,106 +1064,107 @@ ${isGroup ? `• Admin: ${await isGroupAdmin(socket, from, nowsender) ? 'Yes' : 
             for (const chatNumber of chats) {
               try {
                 const chatJid = chatNumber.includes('@') ? chatNumber : chatNumber + '@s.whatsapp.net';
-                await socket.sendMessage(chatJid, { text: `*📢 BROADCAST*\n\n${message}` });
+                await socket.sendMessage(chatJid, { text: `╭────────￫\n│  📢 ʙʀᴏᴀᴅᴄᴀsᴛ\n│\n│  ${message}\n╰───────￫` });
                 sent++;
                 await delay(500);
               } catch(e) {}
             }
-            await sendReply(socket, sender, `✅ Broadcast sent to ${sent} chats.`);
+            await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', `ʙʀᴏᴀᴅᴄᴀsᴛ sᴇɴᴛ ᴛᴏ ${sent} ᴄʜᴀᴛs.`, '✅');
           } catch(e) {
-            await sendReply(socket, sender, '❌ Failed to send broadcast.');
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ sᴇɴᴅ ʙʀᴏᴀᴅᴄᴀsᴛ.', '❌');
           }
           break;
         }
 
         case 'ban': {
           if (!isOwner(senderNumber)) {
-            await sendReply(socket, sender, '❌ Owner only command.');
+            await sendFuturisticReply(socket, sender, 'ᴘᴇʀᴍɪssɪᴏɴ ᴇʀʀᴏʀ', 'ᴏᴡɴᴇʀ ᴏɴʟʏ ᴄᴏᴍᴍᴀɴᴅ.', '❌');
             break;
           }
           const target = args[0] || msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
           if (!target) {
-            await sendReply(socket, sender, '❌ Usage: .ban @user or reply to user');
+            await sendFuturisticReply(socket, sender, 'ᴜsᴀɢᴇ', '.ʙᴀɴ @ᴜsᴇʀ ᴏʀ ʀᴇᴘʟʏ ᴛᴏ ᴜsᴇʀ', '🚫');
             break;
           }
-          bannedUsers.set(target, `Banned by owner at ${getZimbabweanTimestamp()}`);
-          await sendReply(socket, sender, `✅ User ${target} has been banned from using commands.`);
+          bannedUsers.set(target, `ʙᴀɴɴᴇᴅ ʙʏ ᴏᴡɴᴇʀ ᴀᴛ ${getZimbabweanTimestamp()}`);
+          await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', `ᴜsᴇʀ ${target} ʜᴀs ʙᴇᴇɴ ʙᴀɴɴᴇᴅ ғʀᴏᴍ ᴜsɪɴɢ ᴄᴏᴍᴍᴀɴᴅs.`, '✅');
           break;
         }
 
         case 'unban': {
           if (!isOwner(senderNumber)) {
-            await sendReply(socket, sender, '❌ Owner only command.');
+            await sendFuturisticReply(socket, sender, 'ᴘᴇʀᴍɪssɪᴏɴ ᴇʀʀᴏʀ', 'ᴏᴡɴᴇʀ ᴏɴʟʏ ᴄᴏᴍᴍᴀɴᴅ.', '❌');
             break;
           }
           const target = args[0] || msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
           if (!target) {
-            await sendReply(socket, sender, '❌ Usage: .unban @user');
+            await sendFuturisticReply(socket, sender, 'ᴜsᴀɢᴇ', '.ᴜɴʙᴀɴ @ᴜsᴇʀ', '✅');
             break;
           }
           bannedUsers.delete(target);
-          await sendReply(socket, sender, `✅ User ${target} has been unbanned.`);
+          await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', `ᴜsᴇʀ ${target} ʜᴀs ʙᴇᴇɴ ᴜɴʙᴀɴɴᴇᴅ.`, '✅');
           break;
         }
 
         case 'block': {
           if (!isOwner(senderNumber)) {
-            await sendReply(socket, sender, '❌ Owner only command.');
+            await sendFuturisticReply(socket, sender, 'ᴘᴇʀᴍɪssɪᴏɴ ᴇʀʀᴏʀ', 'ᴏᴡɴᴇʀ ᴏɴʟʏ ᴄᴏᴍᴍᴀɴᴅ.', '❌');
             break;
           }
           const target = args[0] || msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
           if (!target) {
-            await sendReply(socket, sender, '❌ Usage: .block @user or number');
+            await sendFuturisticReply(socket, sender, 'ᴜsᴀɢᴇ', '.ʙʟᴏᴄᴋ @ᴜsᴇʀ ᴏʀ ɴᴜᴍʙᴇʀ', '🔒');
             break;
           }
           try {
             const targetJid = target.includes('@') ? target : target + '@s.whatsapp.net';
             await socket.updateBlockStatus(targetJid, 'block');
-            await sendReply(socket, sender, `✅ User ${target} has been blocked.`);
+            await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', `ᴜsᴇʀ ${target} ʜᴀs ʙᴇᴇɴ ʙʟᴏᴄᴋᴇᴅ.`, '✅');
           } catch(e) {
-            await sendReply(socket, sender, '❌ Failed to block user.');
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ʙʟᴏᴄᴋ ᴜsᴇʀ.', '❌');
           }
           break;
         }
 
         case 'unblock': {
           if (!isOwner(senderNumber)) {
-            await sendReply(socket, sender, '❌ Owner only command.');
+            await sendFuturisticReply(socket, sender, 'ᴘᴇʀᴍɪssɪᴏɴ ᴇʀʀᴏʀ', 'ᴏᴡɴᴇʀ ᴏɴʟʏ ᴄᴏᴍᴍᴀɴᴅ.', '❌');
             break;
           }
           const target = args[0] || msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
           if (!target) {
-            await sendReply(socket, sender, '❌ Usage: .unblock @user or number');
+            await sendFuturisticReply(socket, sender, 'ᴜsᴀɢᴇ', '.ᴜɴʙʟᴏᴄᴋ @ᴜsᴇʀ ᴏʀ ɴᴜᴍʙᴇʀ', '🔓');
             break;
           }
           try {
             const targetJid = target.includes('@') ? target : target + '@s.whatsapp.net';
             await socket.updateBlockStatus(targetJid, 'unblock');
-            await sendReply(socket, sender, `✅ User ${target} has been unblocked.`);
+            await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', `ᴜsᴇʀ ${target} ʜᴀs ʙᴇᴇɴ ᴜɴʙʟᴏᴄᴋᴇᴅ.`, '✅');
           } catch(e) {
-            await sendReply(socket, sender, '❌ Failed to unblock user.');
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴜɴʙʟᴏᴄᴋ ᴜsᴇʀ.', '❌');
           }
           break;
         }
 
         case 'logs': {
           if (!isOwner(senderNumber)) {
-            await sendReply(socket, sender, '❌ Owner only command.');
+            await sendFuturisticReply(socket, sender, 'ᴘᴇʀᴍɪssɪᴏɴ ᴇʀʀᴏʀ', 'ᴏᴡɴᴇʀ ᴏɴʟʏ ᴄᴏᴍᴍᴀɴᴅ.', '❌');
             break;
           }
           try {
             const recentLogs = logs.slice(-10).reverse();
-            const logText = recentLogs.map(log => `[${log.timestamp}] ${log.type}: ${log.message}`).join('\n');
-            await sendReply(socket, sender, `📋 Recent Logs (last 10):\n\n${logText || 'No logs yet.'}`);
+            const logText = recentLogs.map(log => `│  [${log.timestamp}] ${log.type}: ${log.message}`).join('\n');
+            const logsText = `╭────────￫\n│  📋 ʀᴇᴄᴇɴᴛ ʟᴏɢs (ʟᴀsᴛ 10)\n│\n${logText || '│  ɴᴏ ʟᴏɢs ʏᴇᴛ.'}\n╰───────￫`;
+            await sendImageReply(socket, sender, logsText);
           } catch(e) {
-            await sendReply(socket, sender, '❌ Failed to fetch logs.');
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ғᴇᴛᴄʜ ʟᴏɢs.', '❌');
           }
           break;
         }
 
         case 'stats': {
           if (!isOwner(senderNumber)) {
-            await sendReply(socket, sender, '❌ Owner only command.');
+            await sendFuturisticReply(socket, sender, 'ᴘᴇʀᴍɪssɪᴏɴ ᴇʀʀᴏʀ', 'ᴏᴡɴᴇʀ ᴏɴʟʏ ᴄᴏᴍᴍᴀɴᴅ.', '❌');
             break;
           }
           try {
@@ -1124,90 +1177,49 @@ ${isGroup ? `• Admin: ${await isGroupAdmin(socket, from, nowsender) ? 'Yes' : 
             const numbers = await getAllNumbersFromMongo();
             
             const statsText = `
-📊 *BOT STATISTICS*
-
-🤖 *Bot Info:*
-• Name: Viral-Bot-Mini
-• Version: ${config.BOT_VERSION}
-• Owner: ${config.OWNER_NAME}
-
-⏱️ *Uptime:*
-• ${hours}h ${minutes}m ${seconds}s
-
-👥 *Users:*
-• Total Users: ${numbers.length}
-• Active Sessions: ${activeSockets.size}
-• Banned Users: ${bannedUsers.size}
-
-📈 *Activity:*
-• Commands Used: ${stats.commandsUsed}
-• Messages Processed: ${stats.messagesProcessed}
-• Total Chats: ${stats.totalChats}
-
-🔧 *System:*
-• Platform: ${process.platform}
-• Node: ${process.version}
+╭────────￫
+│  📊 ʙᴏᴛ sᴛᴀᴛɪsᴛɪᴄs
+│
+│  🤖 ʙᴏᴛ ɪɴғᴏ:
+│  ➤ ɴᴀᴍᴇ: ᴠɪʀᴀʟ-ʙᴏᴛ-ᴍɪɴɪ
+│  ➤ ᴠᴇʀsɪᴏɴ: ${config.BOT_VERSION}
+│  ➤ ᴏᴡɴᴇʀ: ${config.OWNER_NAME}
+│
+│  ⏱️ ᴜᴘᴛɪᴍᴇ:
+│  ➤ ${hours}ʜ ${minutes}ᴍ ${seconds}s
+│
+│  👥 ᴜsᴇʀs:
+│  ➤ ᴛᴏᴛᴀʟ ᴜsᴇʀs: ${numbers.length}
+│  ➤ ᴀᴄᴛɪᴠᴇ sᴇssɪᴏɴs: ${activeSockets.size}
+│  ➤ ʙᴀɴɴᴇᴅ ᴜsᴇʀs: ${bannedUsers.size}
+│
+│  📈 ᴀᴄᴛɪᴠɪᴛʏ:
+│  ➤ ᴄᴏᴍᴍᴀɴᴅs ᴜsᴇᴅ: ${stats.commandsUsed}
+│  ➤ ᴍᴇssᴀɢᴇs ᴘʀᴏᴄᴇssᴇᴅ: ${stats.messagesProcessed}
+│  ➤ ᴛᴏᴛᴀʟ ᴄʜᴀᴛs: ${stats.totalChats}
+│
+│  🔧 sʏsᴛᴇᴍ:
+│  ➤ ᴘʟᴀᴛғᴏʀᴍ: ${process.platform}
+│  ➤ ɴᴏᴅᴇ: ${process.version}
+╰───────￫
             `.trim();
             
-            await sendReply(socket, sender, statsText);
+            await sendImageReply(socket, sender, statsText);
           } catch(e) {
-            await sendReply(socket, sender, '❌ Failed to fetch stats.');
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ғᴇᴛᴄʜ sᴛᴀᴛs.', '❌');
           }
           break;
         }
 
-        // 🛡️ ADMIN/GROUP COMMANDS
-        case 'admin': {
-          // ADMIN CHECK: Only works in groups
-          if (!isGroup) {
-            await sendReply(socket, sender, '❌ This command works in groups only.');
-            break;
-          }
-          const isAdmin = await isGroupAdmin(socket, from, nowsender);
-          if (!isAdmin) {
-            await sendReply(socket, sender, '❌ Group admin only.');
-            break;
-          }
-          
-          const adminText = `
-🛡️ *ADMIN COMMANDS*
-
-👥 *Group Management:*
-• .tagall - Mention all members
-• .kick @user - Remove user
-• .add <number> - Add user
-• .promote @user - Make admin
-• .demote @user - Remove admin
-• .mute - Disable bot in group
-• .unmute - Enable bot in group
-
-⚙️ *Group Settings:*
-• .welcome on/off - Welcome messages
-• .goodbye on/off - Goodbye messages
-• .rules - Show group rules
-• .setrules <text> - Set rules
-• .setdesc <text> - Set description
-• .setgrouppp - Set group profile picture
-• .lock - Lock group (admins only)
-• .unlock - Unlock group
-
-📋 *Usage:*
-Reply to messages or mention users with @
-            `.trim();
-          
-          await sendReply(socket, sender, adminText);
-          break;
-        }
-
+        // 🛡 GROUP MANAGEMENT COMMANDS (with futuristic style)
         case 'tagall': {
-          // ADMIN CHECK: Group only + admin only
-          if (!isGroup) {
-            await sendReply(socket, sender, '❌ Group only command.');
+          if (!from.endsWith('@g.us')) {
+            await sendFuturisticReply(socket, sender, 'ɢʀᴏᴜᴘ ᴇʀʀᴏʀ', 'ɢʀᴏᴜᴘ ᴏɴʟʏ ᴄᴏᴍᴍᴀɴᴅ.', '❌');
             break;
           }
           const isAdmin = await isGroupAdmin(socket, from, nowsender);
           if (!isAdmin) {
-            await sendReply(socket, sender, '❌ Group admin only.');
+            await sendFuturisticReply(socket, sender, 'ᴘᴇʀᴍɪssɪᴏɴ ᴇʀʀᴏʀ', 'ɢʀᴏᴜᴘ ᴀᴅᴍɪɴ ᴏɴʟʏ.', '❌');
             break;
           }
           try {
@@ -1215,359 +1227,297 @@ Reply to messages or mention users with @
             const participants = metadata.participants || [];
             const mentions = participants.map(p => `@${p.id.split('@')[0]}`).join(' ');
             await socket.sendMessage(from, { 
-              text: `📢 *MENTION ALL*\n\n${mentions}\n\nTagged by: @${senderNumber}`,
+              text: `╭────────￫\n│  📢 ᴍᴇɴᴛɪᴏɴ ᴀʟʟ\n│\n│  ${mentions}\n│\n│  ᴛᴀɢɢᴇᴅ ʙʏ: @${senderNumber}\n╰───────￫`,
               mentions: participants.map(p => p.id)
             }, { quoted: msg });
           } catch(e) {
-            await sendReply(socket, sender, '❌ Failed to tag members.');
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴛᴀɢ ᴍᴇᴍʙᴇʀs.', '❌');
           }
           break;
         }
 
         case 'kick': {
-          // ADMIN CHECK: Group only + admin only
-          if (!isGroup) {
-            await sendReply(socket, sender, '❌ Group only command.');
+          if (!from.endsWith('@g.us')) {
+            await sendFuturisticReply(socket, sender, 'ɢʀᴏᴜᴘ ᴇʀʀᴏʀ', 'ɢʀᴏᴜᴘ ᴏɴʟʏ ᴄᴏᴍᴍᴀɴᴅ.', '❌');
             break;
           }
           const isAdmin = await isGroupAdmin(socket, from, nowsender);
           if (!isAdmin) {
-            await sendReply(socket, sender, '❌ Group admin only.');
+            await sendFuturisticReply(socket, sender, 'ᴘᴇʀᴍɪssɪᴏɴ ᴇʀʀᴏʀ', 'ɢʀᴏᴜᴘ ᴀᴅᴍɪɴ ᴏɴʟʏ.', '❌');
             break;
           }
           const target = args[0] || msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
           if (!target) {
-            await sendReply(socket, sender, '❌ Usage: .kick @user or reply to user');
+            await sendFuturisticReply(socket, sender, 'ᴜsᴀɢᴇ', '.ᴋɪᴄᴋ @ᴜsᴇʀ ᴏʀ ʀᴇᴘʟʏ ᴛᴏ ᴜsᴇʀ', '✂️');
             break;
           }
           try {
             await socket.groupParticipantsUpdate(from, [target], 'remove');
-            await sendReply(socket, sender, `✅ User ${target} has been removed from group.`);
+            await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', `ᴜsᴇʀ ${target.split('@')[0]} ʜᴀs ʙᴇᴇɴ ʀᴇᴍᴏᴠᴇᴅ ғʀᴏᴍ ɢʀᴏᴜᴘ.`, '✅');
           } catch(e) {
-            await sendReply(socket, sender, '❌ Failed to kick user.');
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴋɪᴄᴋ ᴜsᴇʀ.', '❌');
           }
           break;
         }
 
         case 'add': {
-          // ADMIN CHECK: Group only + admin only
-          if (!isGroup) {
-            await sendReply(socket, sender, '❌ Group only command.');
+          if (!from.endsWith('@g.us')) {
+            await sendFuturisticReply(socket, sender, 'ɢʀᴏᴜᴘ ᴇʀʀᴏʀ', 'ɢʀᴏᴜᴘ ᴏɴʟʏ ᴄᴏᴍᴍᴀɴᴅ.', '❌');
             break;
           }
           const isAdmin = await isGroupAdmin(socket, from, nowsender);
           if (!isAdmin) {
-            await sendReply(socket, sender, '❌ Group admin only.');
+            await sendFuturisticReply(socket, sender, 'ᴘᴇʀᴍɪssɪᴏɴ ᴇʀʀᴏʀ', 'ɢʀᴏᴜᴘ ᴀᴅᴍɪɴ ᴏɴʟʏ.', '❌');
             break;
           }
           const phone = args[0];
           if (!phone) {
-            await sendReply(socket, sender, '❌ Usage: .add <phone number>');
+            await sendFuturisticReply(socket, sender, 'ᴜsᴀɢᴇ', '.ᴀᴅᴅ <ᴘʜᴏɴᴇ ɴᴜᴍʙᴇʀ>', '➕');
             break;
           }
           try {
             const userJid = phone.includes('@') ? phone : phone + '@s.whatsapp.net';
             await socket.groupParticipantsUpdate(from, [userJid], 'add');
-            await sendReply(socket, sender, `✅ Added ${phone} to group.`);
+            await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', `ᴀᴅᴅᴇᴅ ${phone} ᴛᴏ ɢʀᴏᴜᴘ.`, '✅');
           } catch(e) {
-            await sendReply(socket, sender, '❌ Failed to add user.');
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴀᴅᴅ ᴜsᴇʀ.', '❌');
           }
           break;
         }
 
         case 'promote': {
-          // ADMIN CHECK: Group only + admin only
-          if (!isGroup) {
-            await sendReply(socket, sender, '❌ Group only command.');
+          if (!from.endsWith('@g.us')) {
+            await sendFuturisticReply(socket, sender, 'ɢʀᴏᴜᴘ ᴇʀʀᴏʀ', 'ɢʀᴏᴜᴘ ᴏɴʟʏ ᴄᴏᴍᴍᴀɴᴅ.', '❌');
             break;
           }
           const isAdmin = await isGroupAdmin(socket, from, nowsender);
           if (!isAdmin) {
-            await sendReply(socket, sender, '❌ Group admin only.');
+            await sendFuturisticReply(socket, sender, 'ᴘᴇʀᴍɪssɪᴏɴ ᴇʀʀᴏʀ', 'ɢʀᴏᴜᴘ ᴀᴅᴍɪɴ ᴏɴʟʏ.', '❌');
             break;
           }
           const target = args[0] || msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
           if (!target) {
-            await sendReply(socket, sender, '❌ Usage: .promote @user');
+            await sendFuturisticReply(socket, sender, 'ᴜsᴀɢᴇ', '.ᴘʀᴏᴍᴏᴛᴇ @ᴜsᴇʀ', '⬆️');
             break;
           }
           try {
             await socket.groupParticipantsUpdate(from, [target], 'promote');
-            await sendReply(socket, sender, `✅ User ${target} promoted to admin.`);
+            await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', `ᴜsᴇʀ ${target.split('@')[0]} ᴘʀᴏᴍᴏᴛᴇᴅ ᴛᴏ ᴀᴅᴍɪɴ.`, '✅');
           } catch(e) {
-            await sendReply(socket, sender, '❌ Failed to promote user.');
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴘʀᴏᴍᴏᴛᴇ ᴜsᴇʀ.', '❌');
           }
           break;
         }
 
         case 'demote': {
-          // ADMIN CHECK: Group only + admin only
-          if (!isGroup) {
-            await sendReply(socket, sender, '❌ Group only command.');
+          if (!from.endsWith('@g.us')) {
+            await sendFuturisticReply(socket, sender, 'ɢʀᴏᴜᴘ ᴇʀʀᴏʀ', 'ɢʀᴏᴜᴘ ᴏɴʟʏ ᴄᴏᴍᴍᴀɴᴅ.', '❌');
             break;
           }
           const isAdmin = await isGroupAdmin(socket, from, nowsender);
           if (!isAdmin) {
-            await sendReply(socket, sender, '❌ Group admin only.');
+            await sendFuturisticReply(socket, sender, 'ᴘᴇʀᴍɪssɪᴏɴ ᴇʀʀᴏʀ', 'ɢʀᴏᴜᴘ ᴀᴅᴍɪɴ ᴏɴʟʏ.', '❌');
             break;
           }
           const target = args[0] || msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
           if (!target) {
-            await sendReply(socket, sender, '❌ Usage: .demote @user');
+            await sendFuturisticReply(socket, sender, 'ᴜsᴀɢᴇ', '.ᴅᴇᴍᴏᴛᴇ @ᴜsᴇʀ', '⬇️');
             break;
           }
           try {
             await socket.groupParticipantsUpdate(from, [target], 'demote');
-            await sendReply(socket, sender, `✅ User ${target} demoted from admin.`);
+            await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', `ᴜsᴇʀ ${target.split('@')[0]} ᴅᴇᴍᴏᴛᴇᴅ ғʀᴏᴍ ᴀᴅᴍɪɴ.`, '✅');
           } catch(e) {
-            await sendReply(socket, sender, '❌ Failed to demote user.');
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴅᴇᴍᴏᴛᴇ ᴜsᴇʀ.', '❌');
           }
           break;
         }
 
         case 'mute': {
-          // ADMIN CHECK: Group only + admin only
-          if (!isGroup) {
-            await sendReply(socket, sender, '❌ Group only command.');
+          if (!from.endsWith('@g.us')) {
+            await sendFuturisticReply(socket, sender, 'ɢʀᴏᴜᴘ ᴇʀʀᴏʀ', 'ɢʀᴏᴜᴘ ᴏɴʟʏ ᴄᴏᴍᴍᴀɴᴅ.', '❌');
             break;
           }
           const isAdmin = await isGroupAdmin(socket, from, nowsender);
           if (!isAdmin) {
-            await sendReply(socket, sender, '❌ Group admin only.');
+            await sendFuturisticReply(socket, sender, 'ᴘᴇʀᴍɪssɪᴏɴ ᴇʀʀᴏʀ', 'ɢʀᴏᴜᴘ ᴀᴅᴍɪɴ ᴏɴʟʏ.', '❌');
             break;
           }
           const settings = groupSettings.get(from) || {};
           settings.muted = true;
           groupSettings.set(from, settings);
-          await sendReply(socket, sender, '✅ Bot muted in this group. No replies will be sent.');
+          await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', 'ʙᴏᴛ ᴍᴜᴛᴇᴅ ɪɴ ᴛʜɪs ɢʀᴏᴜᴘ. ɴᴏ ʀᴇᴘʟɪᴇs ᴡɪʟʟ ʙᴇ sᴇɴᴛ.', '🔇');
           break;
         }
 
         case 'unmute': {
-          // ADMIN CHECK: Group only + admin only
-          if (!isGroup) {
-            await sendReply(socket, sender, '❌ Group only command.');
+          if (!from.endsWith('@g.us')) {
+            await sendFuturisticReply(socket, sender, 'ɢʀᴏᴜᴘ ᴇʀʀᴏʀ', 'ɢʀᴏᴜᴘ ᴏɴʟʏ ᴄᴏᴍᴍᴀɴᴅ.', '❌');
             break;
           }
           const isAdmin = await isGroupAdmin(socket, from, nowsender);
           if (!isAdmin) {
-            await sendReply(socket, sender, '❌ Group admin only.');
+            await sendFuturisticReply(socket, sender, 'ᴘᴇʀᴍɪssɪᴏɴ ᴇʀʀᴏʀ', 'ɢʀᴏᴜᴘ ᴀᴅᴍɪɴ ᴏɴʟʏ.', '❌');
             break;
           }
           const settings = groupSettings.get(from) || {};
           settings.muted = false;
           groupSettings.set(from, settings);
-          await sendReply(socket, sender, '✅ Bot unmuted in this group. Replies enabled.');
+          await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', 'ʙᴏᴛ ᴜɴᴍᴜᴛᴇᴅ ɪɴ ᴛʜɪs ɢʀᴏᴜᴘ. ʀᴇᴘʟɪᴇs ᴇɴᴀʙʟᴇᴅ.', '🔊');
           break;
         }
 
         case 'welcome': {
-          // ADMIN CHECK: Group only + admin only
-          if (!isGroup) {
-            await sendReply(socket, sender, '❌ Group only command.');
+          if (!from.endsWith('@g.us')) {
+            await sendFuturisticReply(socket, sender, 'ɢʀᴏᴜᴘ ᴇʀʀᴏʀ', 'ɢʀᴏᴜᴘ ᴏɴʟʏ ᴄᴏᴍᴍᴀɴᴅ.', '❌');
             break;
           }
           const isAdmin = await isGroupAdmin(socket, from, nowsender);
           if (!isAdmin) {
-            await sendReply(socket, sender, '❌ Group admin only.');
+            await sendFuturisticReply(socket, sender, 'ᴘᴇʀᴍɪssɪᴏɴ ᴇʀʀᴏʀ', 'ɢʀᴏᴜᴘ ᴀᴅᴍɪɴ ᴏɴʟʏ.', '❌');
             break;
           }
           const state = args[0];
           if (state !== 'on' && state !== 'off') {
-            await sendReply(socket, sender, '❌ Usage: .welcome on/off');
+            await sendFuturisticReply(socket, sender, 'ᴜsᴀɢᴇ', '.ᴡᴇʟᴄᴏᴍᴇ ᴏɴ/ᴏғғ', '👋');
             break;
           }
           const settings = groupSettings.get(from) || {};
           settings.welcome = state === 'on';
           groupSettings.set(from, settings);
-          await sendReply(socket, sender, `✅ Welcome messages ${state === 'on' ? 'enabled' : 'disabled'}.`);
+          await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', `ᴡᴇʟᴄᴏᴍᴇ ᴍᴇssᴀɢᴇs ${state === 'on' ? 'ᴇɴᴀʙʟᴇᴅ' : 'ᴅɪsᴀʙʟᴇᴅ'}.`, '✅');
           break;
         }
 
         case 'goodbye': {
-          // ADMIN CHECK: Group only + admin only
-          if (!isGroup) {
-            await sendReply(socket, sender, '❌ Group only command.');
+          if (!from.endsWith('@g.us')) {
+            await sendFuturisticReply(socket, sender, 'ɢʀᴏᴜᴘ ᴇʀʀᴏʀ', 'ɢʀᴏᴜᴘ ᴏɴʟʏ ᴄᴏᴍᴍᴀɴᴅ.', '❌');
             break;
           }
           const isAdmin = await isGroupAdmin(socket, from, nowsender);
           if (!isAdmin) {
-            await sendReply(socket, sender, '❌ Group admin only.');
+            await sendFuturisticReply(socket, sender, 'ᴘᴇʀᴍɪssɪᴏɴ ᴇʀʀᴏʀ', 'ɢʀᴏᴜᴘ ᴀᴅᴍɪɴ ᴏɴʟʏ.', '❌');
             break;
           }
           const state = args[0];
           if (state !== 'on' && state !== 'off') {
-            await sendReply(socket, sender, '❌ Usage: .goodbye on/off');
+            await sendFuturisticReply(socket, sender, 'ᴜsᴀɢᴇ', '.ɢᴏᴏᴅʙʏᴇ ᴏɴ/ᴏғғ', '👋');
             break;
           }
           const settings = groupSettings.get(from) || {};
           settings.goodbye = state === 'on';
           groupSettings.set(from, settings);
-          await sendReply(socket, sender, `✅ Goodbye messages ${state === 'on' ? 'enabled' : 'disabled'}.`);
+          await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', `ɢᴏᴏᴅʙʏᴇ ᴍᴇssᴀɢᴇs ${state === 'on' ? 'ᴇɴᴀʙʟᴇᴅ' : 'ᴅɪsᴀʙʟᴇᴅ'}.`, '✅');
           break;
         }
 
         case 'rules': {
-          if (!isGroup) {
-            await sendReply(socket, sender, '❌ Group only command.');
+          if (!from.endsWith('@g.us')) {
+            await sendFuturisticReply(socket, sender, 'ɢʀᴏᴜᴘ ᴇʀʀᴏʀ', 'ɢʀᴏᴜᴘ ᴏɴʟʏ ᴄᴏᴍᴍᴀɴᴅ.', '❌');
             break;
           }
           const settings = groupSettings.get(from) || {};
-          const rules = settings.rules || 'No rules set for this group. Use .setrules to add rules.';
-          await sendReply(socket, sender, `📜 *GROUP RULES*\n\n${rules}`);
+          const rules = settings.rules || 'ɴᴏ ʀᴜʟᴇs sᴇᴛ ғᴏʀ ᴛʜɪs ɢʀᴏᴜᴘ. ᴜsᴇ .sᴇᴛʀᴜʟᴇs ᴛᴏ ᴀᴅᴅ ʀᴜʟᴇs.';
+          await sendFuturisticReply(socket, sender, 'ɢʀᴏᴜᴘ ʀᴜʟᴇs', rules, '📜');
           break;
         }
 
         case 'setrules': {
-          // ADMIN CHECK: Group only + admin only
-          if (!isGroup) {
-            await sendReply(socket, sender, '❌ Group only command.');
+          if (!from.endsWith('@g.us')) {
+            await sendFuturisticReply(socket, sender, 'ɢʀᴏᴜᴘ ᴇʀʀᴏʀ', 'ɢʀᴏᴜᴘ ᴏɴʟʏ ᴄᴏᴍᴍᴀɴᴅ.', '❌');
             break;
           }
           const isAdmin = await isGroupAdmin(socket, from, nowsender);
           if (!isAdmin) {
-            await sendReply(socket, sender, '❌ Group admin only.');
+            await sendFuturisticReply(socket, sender, 'ᴘᴇʀᴍɪssɪᴏɴ ᴇʀʀᴏʀ', 'ɢʀᴏᴜᴘ ᴀᴅᴍɪɴ ᴏɴʟʏ.', '❌');
             break;
           }
           const rulesText = args.join(' ');
           if (!rulesText) {
-            await sendReply(socket, sender, '❌ Usage: .setrules <rules text>');
+            await sendFuturisticReply(socket, sender, 'ᴜsᴀɢᴇ', '.sᴇᴛʀᴜʟᴇs <ʀᴜʟᴇs ᴛᴇxᴛ>', '✏️');
             break;
           }
           const settings = groupSettings.get(from) || {};
           settings.rules = rulesText;
           groupSettings.set(from, settings);
-          await sendReply(socket, sender, '✅ Group rules updated.');
+          await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', 'ɢʀᴏᴜᴘ ʀᴜʟᴇs ᴜᴘᴅᴀᴛᴇᴅ.', '✅');
           break;
         }
 
         case 'setdesc': {
-          // ADMIN CHECK: Group only + admin only
-          if (!isGroup) {
-            await sendReply(socket, sender, '❌ Group only command.');
+          if (!from.endsWith('@g.us')) {
+            await sendFuturisticReply(socket, sender, 'ɢʀᴏᴜᴘ ᴇʀʀᴏʀ', 'ɢʀᴏᴜᴘ ᴏɴʟʏ ᴄᴏᴍᴍᴀɴᴅ.', '❌');
             break;
           }
           const isAdmin = await isGroupAdmin(socket, from, nowsender);
           if (!isAdmin) {
-            await sendReply(socket, sender, '❌ Group admin only.');
+            await sendFuturisticReply(socket, sender, 'ᴘᴇʀᴍɪssɪᴏɴ ᴇʀʀᴏʀ', 'ɢʀᴏᴜᴘ ᴀᴅᴍɪɴ ᴏɴʟʏ.', '❌');
             break;
           }
           const descText = args.join(' ');
           if (!descText) {
-            await sendReply(socket, sender, '❌ Usage: .setdesc <description>');
+            await sendFuturisticReply(socket, sender, 'ᴜsᴀɢᴇ', '.sᴇᴛᴅᴇsᴄ <ᴅᴇsᴄʀɪᴘᴛɪᴏɴ>', '📝');
             break;
           }
           try {
             await socket.groupUpdateDescription(from, descText);
-            await sendReply(socket, sender, '✅ Group description updated.');
+            await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', 'ɢʀᴏᴜᴘ ᴅᴇsᴄʀɪᴘᴛɪᴏɴ ᴜᴘᴅᴀᴛᴇᴅ.', '✅');
           } catch(e) {
-            await sendReply(socket, sender, '❌ Failed to update description.');
-          }
-          break;
-        }
-
-        case 'setgrouppp': {
-          // ADMIN CHECK: Group only + admin only
-          if (!isGroup) {
-            await sendReply(socket, sender, '❌ Group only command.');
-            break;
-          }
-          const isAdmin = await isGroupAdmin(socket, from, nowsender);
-          if (!isAdmin) {
-            await sendReply(socket, sender, '❌ Group admin only.');
-            break;
-          }
-          const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-          if (!quoted?.imageMessage) {
-            await sendReply(socket, sender, '❌ Please reply to an image.');
-            break;
-          }
-          try {
-            const media = await downloadQuotedMedia(quoted);
-            if (media?.buffer) {
-              await socket.updateProfilePicture(from, media.buffer);
-              await sendReply(socket, sender, '✅ Group profile picture updated.');
-            } else {
-              await sendReply(socket, sender, '❌ Failed to download image.');
-            }
-          } catch(e) {
-            await sendReply(socket, sender, '❌ Failed to update group profile picture.');
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴜᴘᴅᴀᴛᴇ ᴅᴇsᴄʀɪᴘᴛɪᴏɴ.', '❌');
           }
           break;
         }
 
         case 'lock': {
-          // ADMIN CHECK: Group only + admin only
-          if (!isGroup) {
-            await sendReply(socket, sender, '❌ Group only command.');
+          if (!from.endsWith('@g.us')) {
+            await sendFuturisticReply(socket, sender, 'ɢʀᴏᴜᴘ ᴇʀʀᴏʀ', 'ɢʀᴏᴜᴘ ᴏɴʟʏ ᴄᴏᴍᴍᴀɴᴅ.', '❌');
             break;
           }
           const isAdmin = await isGroupAdmin(socket, from, nowsender);
           if (!isAdmin) {
-            await sendReply(socket, sender, '❌ Group admin only.');
+            await sendFuturisticReply(socket, sender, 'ᴘᴇʀᴍɪssɪᴏɴ ᴇʀʀᴏʀ', 'ɢʀᴏᴜᴘ ᴀᴅᴍɪɴ ᴏɴʟʏ.', '❌');
             break;
           }
           const settings = groupSettings.get(from) || {};
           settings.locked = true;
           groupSettings.set(from, settings);
-          await sendReply(socket, sender, '✅ Group locked. Only admins can send messages.');
+          await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', 'ɢʀᴏᴜᴘ ʟᴏᴄᴋᴇᴅ. ᴏɴʟʏ ᴀᴅᴍɪɴs ᴄᴀɴ sᴇɴᴅ ᴍᴇssᴀɢᴇs.', '🔒');
           break;
         }
 
         case 'unlock': {
-          // ADMIN CHECK: Group only + admin only
-          if (!isGroup) {
-            await sendReply(socket, sender, '❌ Group only command.');
+          if (!from.endsWith('@g.us')) {
+            await sendFuturisticReply(socket, sender, 'ɢʀᴏᴜᴘ ᴇʀʀᴏʀ', 'ɢʀᴏᴜᴘ ᴏɴʟʏ ᴄᴏᴍᴍᴀɴᴅ.', '❌');
             break;
           }
           const isAdmin = await isGroupAdmin(socket, from, nowsender);
           if (!isAdmin) {
-            await sendReply(socket, sender, '❌ Group admin only.');
+            await sendFuturisticReply(socket, sender, 'ᴘᴇʀᴍɪssɪᴏɴ ᴇʀʀᴏʀ', 'ɢʀᴏᴜᴘ ᴀᴅᴍɪɴ ᴏɴʟʏ.', '❌');
             break;
           }
           const settings = groupSettings.get(from) || {};
           settings.locked = false;
           groupSettings.set(from, settings);
-          await sendReply(socket, sender, '✅ Group unlocked. Everyone can send messages.');
+          await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', 'ɢʀᴏᴜᴘ ᴜɴʟᴏᴄᴋᴇᴅ. ᴇᴠᴇʀʏᴏɴᴇ ᴄᴀɴ sᴇɴᴅ ᴍᴇssᴀɢᴇs.', '🔓');
           break;
         }
 
         case 'support': {
+          try { await socket.sendMessage(sender, { react: { text: "🤝", key: msg.key } }); } catch(e){}
+          
           const support = config.SUPPORT_NEWSLETTER;
+          const message = `╭────────￫\n│  🤝 sᴜᴘᴘᴏʀᴛ ᴛʜᴇ ᴅᴇᴠᴇʟᴏᴘᴇʀ\n│\n│  ɪғ ʏᴏᴜ ᴀᴘᴘʀᴇᴄɪᴀᴛᴇ ᴛʜɪs ғʀᴇᴇ ʙᴏᴛ,\n│  ᴘʟᴇᴀsᴇ ᴀᴅᴅ ᴍʏ ɴᴇᴡsʟᴇᴛᴛᴇʀ:\n│\n│  📢 ${support.name}\n│  🔗 ${support.jid}\n│  📝 ${support.description}\n│\n│  ʜᴏᴡ ᴛᴏ ᴀᴅᴅ:\n│  1. ᴇᴅɪᴛ \`ᴘᴀɪʀ.ᴊs\`\n│  2. ғɪɴᴅ \`ᴅᴇғᴀᴜʟᴛ_ɴᴇᴡsʟᴇᴛᴛᴇʀs\`\n│  3. ᴀᴅᴅ ᴛʜɪs ᴛᴏ ᴛʜᴇ ᴀʀʀᴀʏ:\n│\n│  \`\`\`ᴊsᴏɴ\n│  {\n│    ᴊɪᴅ: "${support.jid}",\n│    ᴇᴍᴏᴊɪs: ${JSON.stringify(support.emojis)},\n│    ɴᴀᴍᴇ: "${support.name}",\n│    ᴅᴇsᴄʀɪᴘᴛɪᴏɴ: "${support.description}"\n│  }\n│  \`\`\`\n│\n│  ᴛʜᴀɴᴋ ʏᴏᴜ ғᴏʀ ʏᴏᴜʀ sᴜᴘᴘᴏʀᴛ! 🙏\n╰───────￫`;
           
-          const message = `*🤝 SUPPORT THE DEVELOPER*\n\n` +
-                        `If you appreciate this free bot, please add my newsletter:\n\n` +
-                        `📢 *${support.name}*\n` +
-                        `🔗 ${support.jid}\n` +
-                        `📝 ${support.description}\n\n` +
-                        `*How to add:*\n` +
-                        `1. Edit \`pair.js\`\n` +
-                        `2. Find \`DEFAULT_NEWSLETTERS\`\n` +
-                        `3. Add this to the array:\n\n` +
-                        `\`\`\`json\n` +
-                        `{\n` +
-                        `  jid: "${support.jid}",\n` +
-                        `  emojis: ${JSON.stringify(support.emojis)},\n` +
-                        `  name: "${support.name}",\n` +
-                        `  description: "${support.description}"\n` +
-                        `}\n` +
-                        `\`\`\`\n\n` +
-                        `*Thank you for your support!* 🙏`;
-          
-          await sendReply(socket, sender, message);
+          await sendImageReply(socket, sender, message);
           break;
         }
 
         default:
-          // Unknown command
-          if (isCmd) {
-            await sendReply(socket, sender, `❌ Unknown command: ${command}\nType ${config.PREFIX}help for available commands.`);
-          }
           break;
       }
     } catch (err) {
-      console.error('Command handler error:', err);
-      await sendReply(socket, sender, '❌ An error occurred while processing your command. Please try again.');
+      console.error('ᴄᴏᴍᴍᴀɴᴅ ʜᴀɴᴅʟᴇʀ ᴇʀʀᴏʀ:', err);
+      await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ᴀɴ ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ ᴡʜɪʟᴇ ᴘʀᴏᴄᴇssɪɴɢ ʏᴏᴜʀ ᴄᴏᴍᴍᴀɴᴅ. ᴘʟᴇᴀsᴇ ᴛʀʏ ᴀɢᴀɪɴ.', '❌');
     }
   });
 }
@@ -1580,7 +1530,7 @@ function setupMessageHandlers(socket) {
     
     const sender = msg.key.fromMe ? socket.user.id : (msg.key.participant || msg.key.remoteJid);
     if (isBanned(sender)) {
-      try { await sendReply(socket, sender, '❌ You are banned from using bot commands.'); } catch(e) {}
+      try { await sendFuturisticReply(socket, sender, 'ʙᴀɴɴᴇᴅ', 'ʏᴏᴜ ᴀʀᴇ ʙᴀɴɴᴇᴅ ғʀᴏᴍ ᴜsɪɴɢ ʙᴏᴛ ᴄᴏᴍᴍᴀɴᴅs.', '❌'); } catch(e) {}
       return;
     }
     
