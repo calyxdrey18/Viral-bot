@@ -108,10 +108,6 @@ function isOwner(senderJid) {
         // Check against all owner numbers
         const ownerNumbers = config.OWNER_NUMBERS || [config.OWNER_NUMBER];
         
-        // Debug logging
-        console.log(`Checking ownership: Sender ${senderNumber} vs Owners ${ownerNumbers.join(', ')}`);
-        console.log(`Sender JID: ${senderJid}`);
-        
         // Check if sender number matches any owner number
         return ownerNumbers.includes(senderNumber);
     } catch (e) {
@@ -195,21 +191,10 @@ async function sendFuturisticReply(socket, sender, title, content, emoji = '🔧
     return await sendImageReply(socket, sender, formattedText, { buttons: replyButtons });
 }
 
-// Helper: Format command list in futuristic style
-function formatCommandList(title, commands, emoji) {
-    let list = `╭────────￫\n│  ${emoji} ${title}\n`;
-    commands.forEach(cmd => {
-        list += `│  ➤ ${cmd}\n`;
-    });
-    list += `╰───────￫`;
-    return list;
-}
-
 // Helper: Check owner permission and send error if not owner
 async function checkOwnerPermission(socket, sender, senderJid, commandName) {
     if (!isOwner(senderJid)) {
         console.log(`Permission denied: ${senderJid} tried to use ${commandName}`);
-        // Get all owner numbers for display
         const ownerNumbers = config.OWNER_NUMBERS || [config.OWNER_NUMBER];
         await sendFuturisticReply(socket, sender, 'ᴘᴇʀᴍɪssɪᴏɴ ᴅᴇɴɪᴇᴅ', 
             `ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ ɪs ʀᴇsᴛʀɪᴄᴛᴇᴅ ᴛᴏ ᴛʜᴇ ʙᴏᴛ ᴏᴡɴᴇʀs ᴏɴʟʏ.\n\nᴏᴡɴᴇʀ: ${config.OWNER_NAME}\nᴏᴡɴᴇʀ ɴᴜᴍʙᴇʀs: ${ownerNumbers.join(', ')}`, 
@@ -225,7 +210,6 @@ async function isGroupAdmin(socket, groupJid, userJid) {
     try {
         const metadata = await socket.groupMetadata(groupJid);
         const participants = metadata.participants || [];
-        // Normalized JID comparison for robustness
         const user = participants.find(p => jidNormalizedUser(p.id) === jidNormalizedUser(userJid));
         return user ? (user.admin === 'admin' || user.admin === 'superadmin') : false;
     } catch (e) {
@@ -255,26 +239,6 @@ async function downloadMedia(message, mimeType) {
     } catch (e) {
         console.error('Download media error:', e);
         return null;
-    }
-}
-
-// Helper: Convert to sticker with proper processing
-async function convertToSticker(buffer, mimeType) {
-    try {
-        // If it's a video, convert to GIF for sticker
-        if (mimeType.includes('video')) {
-            // For simplicity, we'll use the first frame if video-to-sticker conversion fails
-            // In production, you might want to use ffmpeg or similar
-            const image = await Jimp.read(buffer);
-            return await image.resize(512, 512).getBufferAsync(Jimp.MIME_PNG);
-        } else {
-            // For images
-            const image = await Jimp.read(buffer);
-            return await image.resize(512, 512).getBufferAsync(Jimp.MIME_PNG);
-        }
-    } catch (e) {
-        console.error('Convert to sticker error:', e);
-        return buffer; // Return original buffer as fallback
     }
 }
 
@@ -833,9 +797,18 @@ function setupCommandHandlers(socket, number) {
     const msg = messages[0];
     if (!msg || !msg.message || msg.key.remoteJid === 'status@broadcast' || msg.key.remoteJid === config.NEWSLETTER_JID) return;
 
-    const type = getContentType(msg.message);
+    let type = getContentType(msg.message);
     if (!msg.message) return;
-    msg.message = (getContentType(msg.message) === 'ephemeralMessage') ? msg.message.ephemeralMessage.message : msg.message;
+
+    // Handle Ephemeral (Disappearing) Messages and ViewOnce Messages properly
+    if (type === 'ephemeralMessage') {
+      msg.message = msg.message.ephemeralMessage.message;
+      type = getContentType(msg.message);
+    }
+    if (type === 'viewOnceMessage' || type === 'viewOnceMessageV2') {
+      msg.message = msg.message[type].message;
+      type = getContentType(msg.message);
+    }
 
     const from = msg.key.remoteJid;
     const sender = from;
@@ -1352,30 +1325,21 @@ function setupCommandHandlers(socket, number) {
             
             if (buffer) {
               // Process image for sticker
-              let stickerBuffer;
+              let stickerBuffer = buffer;
+              
               if (qType === 'imageMessage') {
                 try {
                   const image = await Jimp.read(buffer);
+                  // Resize to 512x512 and keep as PNG. 
+                  // Baileys often handles the conversion to WebP automatically if passed to sticker property.
                   stickerBuffer = await image
                     .resize(512, 512)
                     .quality(100)
                     .getBufferAsync(Jimp.MIME_PNG);
                 } catch (imgError) {
                   console.error('Image processing error:', imgError);
+                  // Fallback to original buffer
                   stickerBuffer = buffer;
-                }
-              } else if (qType === 'videoMessage') {
-                // For videos, extract first frame using Jimp
-                try {
-                  // Create a simple image with video info (in production, use ffmpeg)
-                  const image = await Jimp.create(512, 512, 0x0000FFFF);
-                  const font = await Jimp.loadFont(Jimp.FONT_SANS_32_WHITE);
-                  await image.print(font, 50, 200, 'Video Sticker');
-                  stickerBuffer = await image.getBufferAsync(Jimp.MIME_PNG);
-                } catch (vidError) {
-                  console.error('Video processing error:', vidError);
-                  const image = await Jimp.read(512, 512, 0x0000FFFF);
-                  stickerBuffer = await image.getBufferAsync(Jimp.MIME_PNG);
                 }
               }
               
@@ -1385,8 +1349,8 @@ function setupCommandHandlers(socket, number) {
                   sticker: stickerBuffer 
                 });
                 
-                // Send success message
-                await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', 'sᴛɪᴄᴋᴇʀ ᴄʀᴇᴀᴛᴇᴅ sᴜᴄᴄᴇssғᴜʟʟʏ ✅', '✅');
+                // Send success message (optional, might be spammy)
+                // await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', 'sᴛɪᴄᴋᴇʀ ᴄʀᴇᴀᴛᴇᴅ sᴜᴄᴄᴇssғᴜʟʟʏ ✅', '✅');
               } else {
                 await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴄʀᴇᴀᴛᴇ sᴛɪᴄᴋᴇʀ.', '❌');
               }
