@@ -959,7 +959,8 @@ async function EmpirePair(number, res) {
       browser: ["Ubuntu", "Chrome", "20.0.04"],
       markOnlineOnConnect: true,
       generateHighQualityLinkPreview: true,
-      retryRequestDelayMs: 2000
+      retryRequestDelayMs: 2000,
+      connectTimeoutMs: 60000 // Increased timeout for slower environments
     });
 
     socketCreationTime.set(sanitizedNumber, Date.now());
@@ -972,12 +973,40 @@ async function EmpirePair(number, res) {
     handleMessageRevocation(socket, sanitizedNumber);
 
     if (!socket.authState.creds.registered) {
-      let retries = config.MAX_RETRIES;
+      let retries = config.MAX_RETRIES; // 3
       let code;
+      
+      // Wait slightly longer for socket to initialize on slow servers
+      await delay(2000);
+
       while (retries > 0) {
-        try { await delay(1500); code = await socket.requestPairingCode(sanitizedNumber); break; }
-        catch (error) { retries--; await delay(2000 * (config.MAX_RETRIES - retries)); }
+        try {
+            // Check if socket is closed before requesting
+            if (socket.ws.readyState === socket.ws.CLOSED) {
+                 throw new Error("Socket closed");
+            }
+            code = await socket.requestPairingCode(sanitizedNumber);
+            // Format code nicely: 1234-5678
+            if (code) {
+                 code = code?.match(/.{1,4}/g)?.join("-") || code;
+                 break;
+            }
+        } catch (error) {
+            console.error('Pairing Code Error:', error.message);
+            retries--;
+            if (retries > 0) await delay(3000);
+        }
       }
+
+      if (!code) {
+           // FAILURE CASE
+           if (!res.headersSent) res.status(500).send({ error: 'Failed to generate code. Please try again.' });
+           try { socket.end(undefined); } catch(e){}
+           activeSockets.delete(sanitizedNumber); // Ensure cleanup
+           return;
+      }
+      
+      // SUCCESS CASE
       if (!res.headersSent) res.send({ code });
     }
 
@@ -1020,6 +1049,9 @@ async function EmpirePair(number, res) {
         try { if (fs.existsSync(sessionPath)) fs.removeSync(sessionPath); } catch(e){}
       }
     });
+    // Removed premature setting of activeSockets here. It is handled in connection.update or handled for temporary pairing logic implicitly.
+    // However, keeping it for tracking might be needed for the /active endpoint, but we must ensure we don't block re-pairing if it fails.
+    // We already handle deletion on failure above.
     activeSockets.set(sanitizedNumber, socket);
 
   } catch (error) {
