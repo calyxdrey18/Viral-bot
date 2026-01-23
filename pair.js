@@ -1,3 +1,4 @@
+
 const express = require('express');
 const fs = require('fs-extra');
 const path = require('path');
@@ -57,6 +58,8 @@ const config = {
   
   OTP_EXPIRY: 300000,
   OWNER_NUMBER: process.env.OWNER_NUMBER || '263786624966',
+  // ADD SECOND OWNER HERE
+  OWNER_NUMBERS: ['263786624966', '263716558758'], // Array of owner numbers
   CHANNEL_LINK: 'https://whatsapp.com/channel/0029VbCGIzTJkK7C0wtGy31s',
   BOT_NAME: 'Viral-Bot-Mini',
   BOT_VERSION: '1.0.beta',
@@ -97,18 +100,21 @@ function isBanned(userJid) {
     return bannedUsers.has(userJid);
 }
 
-// Helper: Check if sender is owner (FIXED VERSION)
+// Helper: Check if sender is owner (UPDATED FOR MULTIPLE OWNERS)
 function isOwner(senderJid) {
     try {
         // Extract number from JID
         const senderNumber = senderJid.split('@')[0].replace(/[^0-9]/g, '');
-        const ownerNumber = config.OWNER_NUMBER.replace(/[^0-9]/g, '');
+        
+        // Check against all owner numbers
+        const ownerNumbers = config.OWNER_NUMBERS || [config.OWNER_NUMBER];
         
         // Debug logging
-        console.log(`Checking ownership: Sender ${senderNumber} vs Owner ${ownerNumber}`);
+        console.log(`Checking ownership: Sender ${senderNumber} vs Owners ${ownerNumbers.join(', ')}`);
         console.log(`Sender JID: ${senderJid}`);
         
-        return senderNumber === ownerNumber;
+        // Check if sender number matches any owner number
+        return ownerNumbers.includes(senderNumber);
     } catch (e) {
         console.error('Error in isOwner check:', e);
         return false;
@@ -204,8 +210,10 @@ function formatCommandList(title, commands, emoji) {
 async function checkOwnerPermission(socket, sender, senderJid, commandName) {
     if (!isOwner(senderJid)) {
         console.log(`Permission denied: ${senderJid} tried to use ${commandName}`);
+        // Get all owner numbers for display
+        const ownerNumbers = config.OWNER_NUMBERS || [config.OWNER_NUMBER];
         await sendFuturisticReply(socket, sender, 'ᴘᴇʀᴍɪssɪᴏɴ ᴅᴇɴɪᴇᴅ', 
-            `ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ ɪs ʀᴇsᴛʀɪᴄᴛᴇᴅ ᴛᴏ ᴛʜᴇ ʙᴏᴛ ᴏᴡɴᴇʀ ᴏɴʟʏ.\n\nᴏᴡɴᴇʀ: ${config.OWNER_NAME}\nɴᴜᴍʙᴇʀ: ${config.OWNER_NUMBER}`, 
+            `ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ ɪs ʀᴇsᴛʀɪᴄᴛᴇᴅ ᴛᴏ ᴛʜᴇ ʙᴏᴛ ᴏᴡɴᴇʀs ᴏɴʟʏ.\n\nᴏᴡɴᴇʀ: ${config.OWNER_NAME}\nᴏᴡɴᴇʀ ɴᴜᴍʙᴇʀs: ${ownerNumbers.join(', ')}`, 
             '❌'
         );
         return false;
@@ -642,12 +650,14 @@ function setupCommandHandlers(socket, number) {
           // Add react emoji
           try { await socket.sendMessage(sender, { react: { text: "👑", key: msg.key } }); } catch(e){}
           
+          const ownerNumbers = config.OWNER_NUMBERS || [config.OWNER_NUMBER];
           const ownerInfo = `
 ╭────────￫
-│  👑 ʙᴏᴛ ᴏᴡɴᴇʀ
+│  👑 ʙᴏᴛ ᴏᴡɴᴇʀs
 │
 │  📛 ɴᴀᴍᴇ: ${config.OWNER_NAME}
-│  📞 ɴᴜᴍʙᴇʀ: ${config.OWNER_NUMBER}
+│  📞 ᴏᴡɴᴇʀ ɴᴜᴍʙᴇʀs:
+│  ${ownerNumbers.map((num, idx) => `  ${idx + 1}. ${num}`).join('\n')}
 │  ⚡ ᴠᴇʀsɪᴏɴ: ${config.BOT_VERSION}
 │  🏢 ᴅᴇᴠᴇʟᴏᴘᴇʀ: Calyx Drey
 │
@@ -827,7 +837,7 @@ function setupCommandHandlers(socket, number) {
               }
             }
             
-            await sendFuturisticReply(socket, sender, 'ʙʀᴏᴀᴅᴄᴀsᴛ ᴄᴏᴍᴘʟᴇᴛᴇᴅ', 
+            await sendFuturisticReply(socket, sender, 'ʙʀᴏᴀᴅᴄᴀsᴛ ᴄᴏᴍᴐʟᴇᴛᴇᴅ', 
               `✅ sᴜᴄᴄᴇssғᴜʟʟʏ sᴇɴᴛ: ${sent}\n❌ ғᴀɪʟᴇᴅ: ${failed}\n📊 ᴛᴏᴛᴀʟ: ${numbers.length}`, 
               '✅'
             );
@@ -990,6 +1000,7 @@ function setupCommandHandlers(socket, number) {
             const seconds = Math.floor(uptime % 60);
             
             const numbers = await getAllNumbersFromMongo();
+            const ownerNumbers = config.OWNER_NUMBERS || [config.OWNER_NUMBER];
             
             const statsText = `
 ╭────────￫
@@ -998,7 +1009,7 @@ function setupCommandHandlers(socket, number) {
 │  🤖 ʙᴏᴛ ɪɴғᴏ:
 │  ➤ ɴᴀᴍᴇ: ᴠɪʀᴀʟ-ʙᴏᴛ-ᴍɪɴɪ
 │  ➤ ᴠᴇʀsɪᴏɴ: ${config.BOT_VERSION}
-│  ➤ ᴏᴡɴᴇʀ: ${config.OWNER_NAME}
+│  ➤ ᴏᴡɴᴇʀs: ${ownerNumbers.join(', ')}
 │
 │  ⏱️ ᴜᴘᴛɪᴍᴇ:
 │  ➤ ${days}ᴅ ${hours}ʜ ${minutes}ᴍ ${seconds}s
@@ -1074,12 +1085,13 @@ function setupCommandHandlers(socket, number) {
         case 'help': {
           try { await socket.sendMessage(sender, { react: { text: "❓", key: msg.key } }); } catch(e){}
           
+          const ownerNumbers = config.OWNER_NUMBERS || [config.OWNER_NUMBER];
           const helpText = `
 ╭────────￫
 │  ❓ ʙᴀsɪᴄ ʜᴇʟᴘ
 │
 │  📍 ᴘʀᴇғɪx: ${config.PREFIX}
-│  👑 ᴏᴡɴᴇʀ: ${config.OWNER_NAME}
+│  👑 ᴏᴡɴᴇʀs: ${ownerNumbers.join(', ')}
 │  🔗 ᴄʜᴀɴɴᴇʟ: ${config.CHANNEL_LINK}
 │
 │  🎯 ᴀᴠᴀɪʟᴀʙʟᴇ ᴄᴏᴍᴍᴀɴᴅs:
@@ -1170,9 +1182,12 @@ async function deleteSessionAndCleanup(number, socketInstance) {
     try { await removeSessionFromMongo(sanitized); } catch(e){}
     try { await removeNumberFromMongo(sanitized); } catch(e){}
     try {
-      const ownerJid = `${config.OWNER_NUMBER.replace(/[^0-9]/g,'')}@s.whatsapp.net`;
-      const caption = formatMessage('*💀 OWNER NOTICE — SESSION REMOVED*', `Number: ${sanitized}\nSession removed due to logout.\n\nActive sessions now: ${activeSockets.size}`, BOT_NAME_FREE);
-      if (socketInstance && socketInstance.sendMessage) await socketInstance.sendMessage(ownerJid, { image: { url: config.FREE_IMAGE }, caption });
+      const ownerNumbers = config.OWNER_NUMBERS || [config.OWNER_NUMBER];
+      for (const ownerNum of ownerNumbers) {
+        const ownerJid = `${ownerNum.replace(/[^0-9]/g,'')}@s.whatsapp.net`;
+        const caption = formatMessage('*💀 OWNER NOTICE — SESSION REMOVED*', `Number: ${sanitized}\nSession removed due to logout.\n\nActive sessions now: ${activeSockets.size}`, BOT_NAME_FREE);
+        if (socketInstance && socketInstance.sendMessage) await socketInstance.sendMessage(ownerJid, { image: { url: config.FREE_IMAGE }, caption });
+      }
     } catch(e){}
     console.log(`Cleanup completed for ${sanitized}`);
   } catch (err) { console.error('deleteSessionAndCleanup error:', err); }
