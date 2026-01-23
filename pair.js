@@ -209,14 +209,19 @@ async function checkOwnerPermission(socket, sender, senderJid, commandName) {
     return true;
 }
 
-// Helper: Check if user is admin in group
+// Helper: Check if user is admin in group (UPDATED with logic from commands.js)
 async function isGroupAdmin(socket, groupJid, userJid) {
     try {
         const metadata = await socket.groupMetadata(groupJid);
         const participants = metadata.participants || [];
-        const normalizedUserJid = jidNormalizedUser(userJid);
-        const user = participants.find(p => jidNormalizedUser(p.id) === normalizedUserJid);
-        return user ? (user.admin === 'admin' || user.admin === 'superadmin') : false;
+        
+        // Filter for admins and create a list of their JIDs
+        const admins = participants
+            .filter(p => p.admin === 'admin' || p.admin === 'superadmin')
+            .map(p => jidNormalizedUser(p.id));
+            
+        // Check if the user is in the admin list
+        return admins.includes(jidNormalizedUser(userJid));
     } catch (e) {
         console.error('Error checking group admin:', e);
         return false;
@@ -683,7 +688,7 @@ async function resize(image, width, height) {
   return await oyy.resize(width, height).getBufferAsync(Jimp.MIME_JPEG);
 }
 
-// ---------------- Anti Content Handler ----------------
+// ---------------- Anti Content Handler (Replaced with commands.js style logic) ----------------
 async function handleAntiContent(socket, msg) {
   const from = msg.key.remoteJid;
   if (!from.endsWith('@g.us')) return false; // Only for groups
@@ -693,100 +698,99 @@ async function handleAntiContent(socket, msg) {
     if (!settings || !settings.anti) return false;
     
     const anti = settings.anti;
-    const sender = msg.key.participant || msg.key.remoteJid;
+    // Normalized sender for consistency
+    const sender = jidNormalizedUser(msg.key.participant || msg.key.remoteJid);
     const message = msg.message;
     
-    // Check if user is admin (admins bypass anti-content)
+    // Check if user is admin or owner (admins/owners bypass anti-content)
     const isAdmin = await isGroupAdmin(socket, from, sender);
     const isOwnerUser = isOwner(sender);
     if (isAdmin || isOwnerUser) return false;
     
     let shouldDelete = false;
     let antiType = '';
+    let warningMsg = '';
     
-    // Check for WhatsApp links
-    if (anti.link && message.conversation) {
-      const text = message.conversation.toLowerCase();
-      if (text.includes('whatsapp.com') || text.includes('chat.whatsapp.com') || text.includes('wa.me')) {
+    // Extract text content for link checking
+    const text = message.conversation || 
+                 message.extendedTextMessage?.text || 
+                 message.imageMessage?.caption || 
+                 message.videoMessage?.caption || "";
+    
+    // Check for Links
+    if (anti.link) {
+      const hasLink = /(https?:\/\/[^\s]+|www\.[^\s]+\.[^\s]+)/.test(text);
+      if (hasLink) {
         shouldDelete = true;
-        antiType = 'link';
+        antiType = 'Link';
+        warningMsg = `⚠️ *Anti-Link Active*\nLinks are not allowed in this group!\nMessage from @${sender.split('@')[0]} deleted.`;
       }
     }
     
-    // Check for sticker
-    if (anti.sticker && message.stickerMessage) {
+    // Check for Stickers
+    if (anti.sticker && message.stickerMessage && !shouldDelete) {
       shouldDelete = true;
-      antiType = 'sticker';
+      antiType = 'Sticker';
+      warningMsg = `⚠️ *Anti-Sticker Active*\nStickers are not allowed in this group!\nSticker from @${sender.split('@')[0]} deleted.`;
     }
     
-    // Check for audio/voice note
-    if (anti.audio && (message.audioMessage || message.pttMessage)) {
+    // Check for Audio
+    if (anti.audio && (message.audioMessage || message.pttMessage) && !shouldDelete) {
       shouldDelete = true;
-      antiType = 'audio';
+      antiType = 'Audio';
+      warningMsg = `⚠️ *Anti-Audio Active*\nAudio messages are not allowed in this group!\nAudio from @${sender.split('@')[0]} deleted.`;
     }
     
-    // Check for image
-    if (anti.image && message.imageMessage) {
+    // Check for Image
+    if (anti.image && message.imageMessage && !shouldDelete) {
       shouldDelete = true;
-      antiType = 'image';
+      antiType = 'Image';
+      warningMsg = `⚠️ *Anti-Image Active*\nImages are not allowed in this group!\nImage from @${sender.split('@')[0]} deleted.`;
     }
     
-    // Check for video
-    if (anti.video && message.videoMessage) {
+    // Check for Video
+    if (anti.video && message.videoMessage && !shouldDelete) {
       shouldDelete = true;
-      antiType = 'video';
+      antiType = 'Video';
+      warningMsg = `⚠️ *Anti-Video Active*\nVideos are not allowed in this group!\nVideo from @${sender.split('@')[0]} deleted.`;
     }
     
-    // Check for view-once
-    if (anti.viewonce && (message.viewOnceMessage || message.viewOnceMessageV2)) {
+    // Check for ViewOnce
+    if (anti.viewonce && (message.viewOnceMessage || message.viewOnceMessageV2) && !shouldDelete) {
       shouldDelete = true;
-      antiType = 'viewonce';
+      antiType = 'ViewOnce';
+      warningMsg = `⚠️ *Anti-ViewOnce Active*\nViewOnce messages are not allowed in this group!\nMessage from @${sender.split('@')[0]} deleted.`;
     }
     
-    // Check for document/file
-    if (anti.file && message.documentMessage) {
+    // Check for Files/Documents
+    if (anti.file && message.documentMessage && !shouldDelete) {
       shouldDelete = true;
-      antiType = 'file';
-    }
-    
-    // Check for group call
-    if (anti.gcall && message.call) {
-      shouldDelete = true;
-      antiType = 'gcall';
+      antiType = 'File';
+      warningMsg = `⚠️ *Anti-File Active*\nFiles are not allowed in this group!\nFile from @${sender.split('@')[0]} deleted.`;
     }
     
     if (shouldDelete) {
       try {
+        // Send warning message first
+        await socket.sendMessage(from, {
+          text: warningMsg,
+          mentions: [sender]
+        }, { quoted: msg });
+        
         // Check if bot is admin before trying to delete
         const botIsAdmin = await isBotAdmin(socket, from);
         
         if (botIsAdmin) {
-          // Try to delete the message
+          // Delete the message
           await socket.sendMessage(from, {
             delete: msg.key
           });
         }
         
-        // Warn the user
-        const warningText = `╭────────￫\n│  ⚠️ ᴀɴᴛɪ-ᴄᴏɴᴛᴇɴᴛ\n│\n│  ʏᴏᴜʀ ${antiType} ʜᴀs ʙᴇᴇɴ ʙʟᴏᴄᴋᴇᴅ ɪɴ ᴛʜɪs ɢʀᴏᴜᴘ.\n│  ᴘʟᴇᴀsᴇ ғᴏʟʟᴏᴡ ɢʀᴏᴜᴘ ʀᴜʟᴇs.\n╰───────￫`;
-        
-        await socket.sendMessage(from, {
-          text: warningText,
-          mentions: [sender]
-        }, { quoted: msg });
-        
         return true;
-      } catch (deleteError) {
-        console.error('Failed to delete anti-content message:', deleteError);
-        // Even if deletion fails, still warn
-        const warningText = `╭────────￫\n│  ⚠️ ᴀɴᴛɪ-ᴄᴏɴᴛᴇɴᴛ\n│\n│  ${antiType} ɪs ɴᴏᴛ ᴀʟʟᴏᴡᴇᴅ ɪɴ ᴛʜɪs ɢʀᴏᴜᴘ.\n│  ᴘʟᴇᴀsᴇ ғᴏʟʟᴏᴡ ɢʀᴏᴜᴘ ʀᴜʟᴇs.\n╰───────￫`;
-        
-        await socket.sendMessage(from, {
-          text: warningText,
-          mentions: [sender]
-        }, { quoted: msg });
-        
-        return true;
+      } catch (error) {
+        console.error(`Failed to handle anti-${antiType}:`, error);
+        return true; // Still return true as we attempted to handle it
       }
     }
   } catch (e) {
@@ -818,20 +822,14 @@ function setupCommandHandlers(socket, number) {
     const from = msg.key.remoteJid;
     const isGroup = from.endsWith('@g.us');
     
-    // Determine the sender JID correctly
-    let senderRaw;
-    if (msg.key.fromMe) {
-        senderRaw = socket.user.id;
-    } else if (isGroup) {
-        senderRaw = msg.key.participant;
-    } else {
-        senderRaw = from;
-    }
-    
+    // Determine the sender logic matching commands.js approach
+    // If group, use participant. If private, use remoteJid.
+    const senderRaw = isGroup ? (msg.key.participant || from) : (msg.key.fromMe ? socket.user.id : from);
     const senderJid = jidNormalizedUser(senderRaw);
+    
     const senderNumber = senderJid.split('@')[0];
     const botNumber = socket.user.id ? jidNormalizedUser(socket.user.id).split('@')[0] : '';
-    const sender = from; // For replying
+    const sender = from; // For replying to the chat
 
     const body = (type === 'conversation') ? msg.message.conversation
       : (type === 'extendedTextMessage') ? msg.message.extendedTextMessage.text
