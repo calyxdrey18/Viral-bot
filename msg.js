@@ -2,7 +2,7 @@ const {
     proto,
     downloadContentFromMessage,
     getContentType
-} = require('@whiskeysockets/baileys') // Updated to official package
+} = require('baileys')
 const fs = require('fs')
 
 
