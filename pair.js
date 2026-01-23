@@ -100,11 +100,13 @@ function isBanned(userJid) {
 // Helper: Check if sender is group admin
 async function isGroupAdmin(socket, groupJid, userJid) {
     try {
+        if (!groupJid.endsWith('@g.us')) return false; // Not a group
         const metadata = await socket.groupMetadata(groupJid);
         const participants = metadata.participants || [];
         const user = participants.find(p => p.id === userJid);
         return user && (user.admin === 'admin' || user.admin === 'superadmin');
     } catch (e) {
+        console.error('Error checking admin status:', e);
         return false;
     }
 }
@@ -137,7 +139,7 @@ function generateFakeMetaId() {
     return `META_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
 
-// Helper: Send image reply with fake meta ID
+// Helper: Send image reply with fake meta ID (for groups)
 async function sendImageReply(socket, sender, caption, options = {}) {
     const fakevcard = {
         key: {
@@ -167,8 +169,27 @@ async function sendImageReply(socket, sender, caption, options = {}) {
         }, messageOptions);
     } catch (error) {
         console.error('Failed to send image reply:', error);
-        // Fallback to text with fake meta
+        // Fallback to text with fake meta for groups
         await socket.sendMessage(sender, { text: caption }, { quoted: fakevcard });
+    }
+}
+
+// Helper: Send text reply (for private chats)
+async function sendTextReply(socket, sender, text, options = {}) {
+    try {
+        await socket.sendMessage(sender, { text }, options);
+    } catch (error) {
+        console.error('Failed to send text reply:', error);
+    }
+}
+
+// Helper: Send reply based on chat type
+async function sendReply(socket, sender, content, options = {}) {
+    const isGroup = sender.endsWith('@g.us');
+    if (isGroup) {
+        await sendImageReply(socket, sender, content, options);
+    } else {
+        await sendTextReply(socket, sender, content, options);
     }
 }
 
@@ -544,7 +565,7 @@ function setupCommandHandlers(socket, number) {
     const nowsender = msg.key.fromMe ? (socket.user.id.split(':')[0] + '@s.whatsapp.net' || socket.user.id) : (msg.key.participant || msg.key.remoteJid);
     const senderNumber = (nowsender || '').split('@')[0];
     const botNumber = socket.user.id ? socket.user.id.split(':')[0] : '';
-    const isOwner = senderNumber === config.OWNER_NUMBER.replace(/[^0-9]/g,'');
+    const isGroup = from.endsWith('@g.us');
 
     const body = (type === 'conversation') ? msg.message.conversation
       : (type === 'extendedTextMessage') ? msg.message.extendedTextMessage.text
@@ -589,8 +610,17 @@ function setupCommandHandlers(socket, number) {
 
     // Check if user is banned
     if (isBanned(nowsender)) {
-      await sendImageReply(socket, sender, '❌ You are banned from using bot commands.');
+      await sendReply(socket, sender, '❌ You are banned from using bot commands.');
       return;
+    }
+
+    // Check if bot is muted in this group
+    if (isGroup) {
+      const settings = groupSettings.get(from) || {};
+      if (settings.muted) {
+        await sendReply(socket, sender, '❌ Bot is muted in this group.');
+        return;
+      }
     }
 
     try {
@@ -608,38 +638,75 @@ function setupCommandHandlers(socket, number) {
 
             let userCfg = {};
             try { if (number && typeof loadUserConfigFromMongo === 'function') userCfg = await loadUserConfigFromMongo((number || '').replace(/[^0-9]/g, '')) || {}; } catch(e){ userCfg = {}; }
-            const title = userCfg.botName || '©Viral-Bot-Mini';
+            const title = userCfg.botName || 'Viral-Bot-Mini';
 
-            const text = `
-╭────────￫
-│  • ɴᴀᴍᴇ ${title}                        
-│  • ᴏᴡɴᴇʀ: ${config.OWNER_NAME || 'Wesley'}            
-│  • ᴠᴇʀsɪᴏɴ: ${config.BOT_VERSION || '1.0.1'}             
-│  • ᴘʟᴀᴛғᴏʀᴍ: ${process.env.PLATFORM || 'Calyx Studio'}           
-│  • ᴜᴘᴛɪᴍᴇ: ${hours}h ${minutes}m ${seconds}s                
-╰────────￫
-╭────────￫
-│  🔧ғᴇᴀᴛᴜʀᴇs                  
-│  [1] 👑 ᴏᴡɴᴇʀ                           
-│  [2]..ᴄᴏᴍɪɴɴ sᴏᴏɴ⤵️                           
-│  [3]...                            
-│  [4]..                       
-│  [5]...                               
-╰───────￫
+            const menuText = `
+╔══════════════════════════════╗
+║ 🌌✨ Viral-Bot Mini ✨🌌       ║
+╠══════════════════════════════╣
+║ 👑 OWNER COMMANDS             ║
+╠──────────────────────────────╣
+║ ➤ .owner        → Bot owner info
+║ ➤ .restart      → Restart bot safely
+║ ➤ .anticall     → Disable calls & block caller
+║ ➤ .setname      → Change bot name
+║ ➤ .setbio       → Update About text
+║ ➤ .setpp        → Set profile picture (reply image)
+║ ➤ .broadcast    → Send message to all chats
+║ ➤ .ban @user    → Ban user
+║ ➤ .unban @user  → Unban user
+║ ➤ .block @user  → Block WhatsApp user
+║ ➤ .unblock @user→ Unblock WhatsApp user
+║ ➤ .logs         → Show bot logs
+║ ➤ .stats        → Bot uptime & stats
+╠══════════════════════════════╣
+║ 🛡️ ADMIN / GROUP COMMANDS      ║
+╠──────────────────────────────╣
+║ ➤ .admin           → Show admin commands
+║ ➤ .tagall          → Mention all group members
+║ ➤ .kick @user      → Remove member
+║ ➤ .add <number>    → Add member
+║ ➤ .promote @user   → Promote to admin
+║ ➤ .demote @user    → Demote admin
+║ ➤ .mute            → Disable bot in group
+║ ➤ .unmute          → Enable bot in group
+║ ➤ .welcome on/off  → Toggle welcome messages
+║ ➤ .goodbye on/off  → Toggle goodbye messages
+║ ➤ .rules           → Show group rules
+║ ➤ .setrules        → Update rules
+║ ➤ .setdesc <text>  → Update group description
+║ ➤ .setgrouppp      → Set group profile picture
+║ ➤ .lock            → Restrict messaging to admins
+║ ➤ .unlock          → Allow all members to message
+╠══════════════════════════════╣
+║ 👤 USER COMMANDS              ║
+╠──────────────────────────────╣
+║ ➤ .menu      → Show this menu
+║ ➤ .help      → Help information
+║ ➤ .info      → Display bot info
+║ ➤ .ping      → Check responsiveness
+║ ➤ .runtime   → Bot uptime
+║ ➤ .owner     → Bot owner contact
+║ ➤ .profile   → Show your profile info
+║ ➤ .id        → User or group ID
+╚══════════════════════════════╝
 
-🎯 ᴛᴀᴘ ᴀ ᴄᴀᴛᴇɢᴏʀʏ ʙᴇʟᴏᴡ!
+📊 *Uptime:* ${hours}h ${minutes}m ${seconds}s
+👤 *User:* @${senderNumber}
+🆔 *ID:* ${nowsender}
 `.trim();
 
-            const buttons = [
-              { buttonId: `${config.PREFIX}owner`, buttonText: { displayText: "👑 ᴏᴡɴᴇʀ" } },
-              { buttonId: `${config.PREFIX}help`, buttonText: { displayText: "❓ ʜᴇʟᴘ" } },
-              { buttonId: `${config.PREFIX}admin`, buttonText: { displayText: "🛡️ ᴀᴅᴍɪɴ" } }
-            ];
-
-            await sendImageReply(socket, sender, text, { buttons, footer: "*▶ ● Viral-Bot-Mini *" });
+            await sendReply(socket, sender, menuText, { 
+              footer: `*${title}* | *Prefix:* ${config.PREFIX}`,
+              buttons: isGroup ? [
+                { buttonId: `${config.PREFIX}owner`, buttonText: { displayText: "👑 ᴏᴡɴᴇʀ" } },
+                { buttonId: `${config.PREFIX}help`, buttonText: { displayText: "❓ ʜᴇʟᴘ" } },
+                { buttonId: `${config.PREFIX}admin`, buttonText: { displayText: "🛡️ ᴀᴅᴍɪɴ" } }
+              ] : []
+            });
           } catch (err) {
             console.error('menu command error:', err);
-            await sendImageReply(socket, sender, '❌ Failed to show menu.');
+            await sendReply(socket, sender, '❌ Failed to show menu.');
           }
           break;
         }
@@ -651,20 +718,15 @@ function setupCommandHandlers(socket, number) {
             const botName = cfg.botName || 'Viral-Bot-Mini';
             const latency = Date.now() - (msg.messageTimestamp * 1000 || Date.now());
 
-            const text = `
-*📡 ${botName} ᴘɪɴɢ ɴᴏᴡ*
+            const text = `*📡 ${botName} ᴘɪɴɢ ɴᴏᴡ*\n\n*◈ 🛠️ 𝐋atency :*  ${latency}ms\n*◈ 🕢 𝐒erver 𝐓ime :* ${new Date().toLocaleString()}`.trim();
 
-*◈ 🛠️ 𝐋atency :*  ${latency}ms
-*◈ 🕢 𝐒erver 𝐓ime :* ${new Date().toLocaleString()}
-`.trim();
-
-            await sendImageReply(socket, sender, text, { 
+            await sendReply(socket, sender, text, { 
               footer: `*${botName} ᴘɪɴɢ*`,
-              buttons: [{ buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "📜 ᴍᴇɴᴜ" } }]
+              buttons: isGroup ? [{ buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "📜 ᴍᴇɴᴜ" } }] : []
             });
           } catch(e) {
             console.error('ping error', e);
-            await sendImageReply(socket, sender, '❌ Failed to get ping.');
+            await sendReply(socket, sender, '❌ Failed to get ping.');
           }
           break;
         }
@@ -683,27 +745,42 @@ function setupCommandHandlers(socket, number) {
 • .profile - Your profile info
 • .id - Get user/group ID
 
-🛡️ *Admin Commands (Group admins):*
+🛡️ *Admin Commands (Group admins only):*
 • .admin - Show admin commands
 • .tagall - Mention all members
 • .kick @user - Remove user
 • .add <number> - Add user
 • .promote @user - Make admin
 • .demote @user - Remove admin
+• .mute - Disable bot in group
+• .unmute - Enable bot in group
+• .welcome on/off - Welcome messages
+• .goodbye on/off - Goodbye messages
+• .rules - Show group rules
+• .setrules - Update rules
+• .setdesc - Update group description
+• .lock - Restrict to admins
+• .unlock - Allow all members
 
-👑 *Owner Commands (Bot owner):*
+👑 *Owner Commands (Bot owner only):*
 • .restart - Restart bot
 • .anticall - Block calls
 • .setname - Change bot name
 • .setbio - Change bot bio
 • .setpp - Set profile picture
 • .broadcast - Send to all chats
+• .ban @user - Ban user
+• .unban @user - Unban user
+• .block @user - Block user
+• .unblock @user - Unblock user
+• .logs - Show bot logs
+• .stats - Bot statistics
 
 📌 *Prefix:* ${config.PREFIX}
 🔗 *Channel:* ${config.CHANNEL_LINK}
 `.trim();
           
-          await sendImageReply(socket, sender, helpText);
+          await sendReply(socket, sender, helpText);
           break;
         }
 
@@ -738,7 +815,7 @@ function setupCommandHandlers(socket, number) {
 💬 *Support:* ${config.GROUP_INVITE_LINK}
 `.trim();
           
-          await sendImageReply(socket, sender, infoText);
+          await sendReply(socket, sender, infoText);
           break;
         }
 
@@ -766,7 +843,7 @@ function setupCommandHandlers(socket, number) {
 🔧 *Version:* ${config.BOT_VERSION}
 `.trim();
           
-          await sendImageReply(socket, sender, runtimeText);
+          await sendReply(socket, sender, runtimeText);
           break;
         }
 
@@ -783,24 +860,24 @@ function setupCommandHandlers(socket, number) {
 📌 *User ID:* ${nowsender}
 
 💬 *Chat Info:*
-• Group: ${from.endsWith('@g.us') ? 'Yes' : 'No'}
+• Group: ${isGroup ? 'Yes' : 'No'}
 • Status: ${isBanned(nowsender) ? '❌ Banned' : '✅ Active'}
-• Admin: ${await isGroupAdmin(socket, from, nowsender) ? 'Yes' : 'No'}
+${isGroup ? `• Admin: ${await isGroupAdmin(socket, from, nowsender) ? 'Yes' : 'No'}` : ''}
 `.trim();
             
-            await sendImageReply(socket, sender, profileText);
+            await sendReply(socket, sender, profileText);
           } catch(e) {
-            await sendImageReply(socket, sender, '❌ Failed to fetch profile.');
+            await sendReply(socket, sender, '❌ Failed to fetch profile.');
           }
           break;
         }
 
         case 'id': {
-          const idText = from.endsWith('@g.us') 
-            ? `📌 *GROUP ID:*\n\`${from}\`\n\n👤 *YOUR ID:*\n\`${nowsender}\``
+          const idText = isGroup 
+            ? `📌 *GROUP ID:*\n\`${from}\`\n\n👤 *YOUR ID:*\n\`${nowsender}\`\n\n📞 *NUMBER:*\n${senderNumber}`
             : `👤 *YOUR ID:*\n\`${nowsender}\`\n\n📞 *NUMBER:*\n${senderNumber}`;
           
-          await sendImageReply(socket, sender, idText);
+          await sendReply(socket, sender, idText);
           break;
         }
 
@@ -820,9 +897,9 @@ function setupCommandHandlers(socket, number) {
 ╰────────✧
 `.trim();
           
-          await sendImageReply(socket, sender, text, { 
+          await sendReply(socket, sender, text, { 
             footer: "👑 𝘖𝘸𝘯𝘦𝘳 𝘐𝘯𝘧𝘰𝘳𝘮𝘢𝘵𝘪𝘰𝘯",
-            buttons: [{ buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "📜 ᴍᴇɴᴜ" } }]
+            buttons: isGroup ? [{ buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "📜 ᴍᴇɴᴜ" } }] : []
           });
           break;
         }
@@ -830,103 +907,103 @@ function setupCommandHandlers(socket, number) {
         // 👑 OWNER COMMANDS
         case 'restart': {
           if (!isOwner(senderNumber)) {
-            await sendImageReply(socket, sender, '❌ Owner only command.');
+            await sendReply(socket, sender, '❌ Owner only command.');
             break;
           }
           try {
-            await sendImageReply(socket, sender, '🔄 Restarting bot...');
+            await sendReply(socket, sender, '🔄 Restarting bot...');
             setTimeout(() => {
-              try { exec(`pm2.restart ${process.env.PM2_NAME || 'Viral-Bot-Mini'}`); } 
+              try { exec(`pm2 restart ${process.env.PM2_NAME || 'Viral-Bot-Mini'}`); } 
               catch(e) { console.error('pm2 restart failed', e); }
             }, 1000);
           } catch(e) {
             console.error('restart error', e);
-            await sendImageReply(socket, sender, '❌ Failed to restart.');
+            await sendReply(socket, sender, '❌ Failed to restart.');
           }
           break;
         }
 
         case 'anticall': {
           if (!isOwner(senderNumber)) {
-            await sendImageReply(socket, sender, '❌ Owner only command.');
+            await sendReply(socket, sender, '❌ Owner only command.');
             break;
           }
           const enabled = args[0] === 'on';
           callBlockers.set(number, { enabled, blockedNumbers: new Set() });
-          await sendImageReply(socket, sender, `✅ Call blocker ${enabled ? 'enabled' : 'disabled'}. Incoming calls will be ${enabled ? 'auto-blocked' : 'allowed'}.`);
+          await sendReply(socket, sender, `✅ Call blocker ${enabled ? 'enabled' : 'disabled'}. Incoming calls will be ${enabled ? 'auto-blocked' : 'allowed'}.`);
           break;
         }
 
         case 'setname': {
           if (!isOwner(senderNumber)) {
-            await sendImageReply(socket, sender, '❌ Owner only command.');
+            await sendReply(socket, sender, '❌ Owner only command.');
             break;
           }
           const newName = args.join(' ');
           if (!newName) {
-            await sendImageReply(socket, sender, '❌ Usage: .setname <new name>');
+            await sendReply(socket, sender, '❌ Usage: .setname <new name>');
             break;
           }
           try {
             await socket.updateProfileName(newName);
-            await sendImageReply(socket, sender, `✅ Bot name changed to: ${newName}`);
+            await sendReply(socket, sender, `✅ Bot name changed to: ${newName}`);
           } catch(e) {
-            await sendImageReply(socket, sender, '❌ Failed to update name.');
+            await sendReply(socket, sender, '❌ Failed to update name.');
           }
           break;
         }
 
         case 'setbio': {
           if (!isOwner(senderNumber)) {
-            await sendImageReply(socket, sender, '❌ Owner only command.');
+            await sendReply(socket, sender, '❌ Owner only command.');
             break;
           }
           const newBio = args.join(' ');
           if (!newBio) {
-            await sendImageReply(socket, sender, '❌ Usage: .setbio <new bio text>');
+            await sendReply(socket, sender, '❌ Usage: .setbio <new bio text>');
             break;
           }
           try {
             await socket.updateProfileStatus(newBio);
-            await sendImageReply(socket, sender, `✅ Bot bio updated to: ${newBio}`);
+            await sendReply(socket, sender, `✅ Bot bio updated to: ${newBio}`);
           } catch(e) {
-            await sendImageReply(socket, sender, '❌ Failed to update bio.');
+            await sendReply(socket, sender, '❌ Failed to update bio.');
           }
           break;
         }
 
         case 'setpp': {
           if (!isOwner(senderNumber)) {
-            await sendImageReply(socket, sender, '❌ Owner only command.');
+            await sendReply(socket, sender, '❌ Owner only command.');
             break;
           }
           const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
           if (!quoted?.imageMessage) {
-            await sendImageReply(socket, sender, '❌ Please reply to an image.');
+            await sendReply(socket, sender, '❌ Please reply to an image.');
             break;
           }
           try {
             const media = await downloadQuotedMedia(quoted);
             if (media?.buffer) {
               await socket.updateProfilePicture(botNumber + '@s.whatsapp.net', media.buffer);
-              await sendImageReply(socket, sender, '✅ Profile picture updated.');
+              await sendReply(socket, sender, '✅ Profile picture updated.');
             } else {
-              await sendImageReply(socket, sender, '❌ Failed to download image.');
+              await sendReply(socket, sender, '❌ Failed to download image.');
             }
           } catch(e) {
-            await sendImageReply(socket, sender, '❌ Failed to update profile picture.');
+            await sendReply(socket, sender, '❌ Failed to update profile picture.');
           }
           break;
         }
 
         case 'broadcast': {
           if (!isOwner(senderNumber)) {
-            await sendImageReply(socket, sender, '❌ Owner only command.');
+            await sendReply(socket, sender, '❌ Owner only command.');
             break;
           }
           const message = args.join(' ');
           if (!message) {
-            await sendImageReply(socket, sender, '❌ Usage: .broadcast <message>');
+            await sendReply(socket, sender, '❌ Usage: .broadcast <message>');
             break;
           }
           try {
@@ -940,101 +1017,101 @@ function setupCommandHandlers(socket, number) {
                 await delay(500);
               } catch(e) {}
             }
-            await sendImageReply(socket, sender, `✅ Broadcast sent to ${sent} chats.`);
+            await sendReply(socket, sender, `✅ Broadcast sent to ${sent} chats.`);
           } catch(e) {
-            await sendImageReply(socket, sender, '❌ Failed to send broadcast.');
+            await sendReply(socket, sender, '❌ Failed to send broadcast.');
           }
           break;
         }
 
         case 'ban': {
           if (!isOwner(senderNumber)) {
-            await sendImageReply(socket, sender, '❌ Owner only command.');
+            await sendReply(socket, sender, '❌ Owner only command.');
             break;
           }
           const target = args[0] || msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
           if (!target) {
-            await sendImageReply(socket, sender, '❌ Usage: .ban @user or reply to user');
+            await sendReply(socket, sender, '❌ Usage: .ban @user or reply to user');
             break;
           }
           bannedUsers.set(target, `Banned by owner at ${getZimbabweanTimestamp()}`);
-          await sendImageReply(socket, sender, `✅ User ${target} has been banned from using commands.`);
+          await sendReply(socket, sender, `✅ User ${target} has been banned from using commands.`);
           break;
         }
 
         case 'unban': {
           if (!isOwner(senderNumber)) {
-            await sendImageReply(socket, sender, '❌ Owner only command.');
+            await sendReply(socket, sender, '❌ Owner only command.');
             break;
           }
           const target = args[0] || msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
           if (!target) {
-            await sendImageReply(socket, sender, '❌ Usage: .unban @user');
+            await sendReply(socket, sender, '❌ Usage: .unban @user');
             break;
           }
           bannedUsers.delete(target);
-          await sendImageReply(socket, sender, `✅ User ${target} has been unbanned.`);
+          await sendReply(socket, sender, `✅ User ${target} has been unbanned.`);
           break;
         }
 
         case 'block': {
           if (!isOwner(senderNumber)) {
-            await sendImageReply(socket, sender, '❌ Owner only command.');
+            await sendReply(socket, sender, '❌ Owner only command.');
             break;
           }
           const target = args[0] || msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
           if (!target) {
-            await sendImageReply(socket, sender, '❌ Usage: .block @user or number');
+            await sendReply(socket, sender, '❌ Usage: .block @user or number');
             break;
           }
           try {
             const targetJid = target.includes('@') ? target : target + '@s.whatsapp.net';
             await socket.updateBlockStatus(targetJid, 'block');
-            await sendImageReply(socket, sender, `✅ User ${target} has been blocked.`);
+            await sendReply(socket, sender, `✅ User ${target} has been blocked.`);
           } catch(e) {
-            await sendImageReply(socket, sender, '❌ Failed to block user.');
+            await sendReply(socket, sender, '❌ Failed to block user.');
           }
           break;
         }
 
         case 'unblock': {
           if (!isOwner(senderNumber)) {
-            await sendImageReply(socket, sender, '❌ Owner only command.');
+            await sendReply(socket, sender, '❌ Owner only command.');
             break;
           }
           const target = args[0] || msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
           if (!target) {
-            await sendImageReply(socket, sender, '❌ Usage: .unblock @user or number');
+            await sendReply(socket, sender, '❌ Usage: .unblock @user or number');
             break;
           }
           try {
             const targetJid = target.includes('@') ? target : target + '@s.whatsapp.net';
             await socket.updateBlockStatus(targetJid, 'unblock');
-            await sendImageReply(socket, sender, `✅ User ${target} has been unblocked.`);
+            await sendReply(socket, sender, `✅ User ${target} has been unblocked.`);
           } catch(e) {
-            await sendImageReply(socket, sender, '❌ Failed to unblock user.');
+            await sendReply(socket, sender, '❌ Failed to unblock user.');
           }
           break;
         }
 
         case 'logs': {
           if (!isOwner(senderNumber)) {
-            await sendImageReply(socket, sender, '❌ Owner only command.');
+            await sendReply(socket, sender, '❌ Owner only command.');
             break;
           }
           try {
             const recentLogs = logs.slice(-10).reverse();
             const logText = recentLogs.map(log => `[${log.timestamp}] ${log.type}: ${log.message}`).join('\n');
-            await sendImageReply(socket, sender, `📋 Recent Logs (last 10):\n\n${logText || 'No logs yet.'}`);
+            await sendReply(socket, sender, `📋 Recent Logs (last 10):\n\n${logText || 'No logs yet.'}`);
           } catch(e) {
-            await sendImageReply(socket, sender, '❌ Failed to fetch logs.');
+            await sendReply(socket, sender, '❌ Failed to fetch logs.');
           }
           break;
         }
 
         case 'stats': {
           if (!isOwner(senderNumber)) {
-            await sendImageReply(socket, sender, '❌ Owner only command.');
+            await sendReply(socket, sender, '❌ Owner only command.');
             break;
           }
           try {
@@ -1072,22 +1149,23 @@ function setupCommandHandlers(socket, number) {
 • Node: ${process.version}
             `.trim();
             
-            await sendImageReply(socket, sender, statsText);
+            await sendReply(socket, sender, statsText);
           } catch(e) {
-            await sendImageReply(socket, sender, '❌ Failed to fetch stats.');
+            await sendReply(socket, sender, '❌ Failed to fetch stats.');
           }
           break;
         }
 
         // 🛡️ ADMIN/GROUP COMMANDS
         case 'admin': {
-          if (!from.endsWith('@g.us')) {
-            await sendImageReply(socket, sender, '❌ This command works in groups only.');
+          // ADMIN CHECK: Only works in groups
+          if (!isGroup) {
+            await sendReply(socket, sender, '❌ This command works in groups only.');
             break;
           }
           const isAdmin = await isGroupAdmin(socket, from, nowsender);
           if (!isAdmin) {
-            await sendImageReply(socket, sender, '❌ Group admin only.');
+            await sendReply(socket, sender, '❌ Group admin only.');
             break;
           }
           
@@ -1109,6 +1187,7 @@ function setupCommandHandlers(socket, number) {
 • .rules - Show group rules
 • .setrules <text> - Set rules
 • .setdesc <text> - Set description
+• .setgrouppp - Set group profile picture
 • .lock - Lock group (admins only)
 • .unlock - Unlock group
 
@@ -1116,18 +1195,19 @@ function setupCommandHandlers(socket, number) {
 Reply to messages or mention users with @
             `.trim();
           
-          await sendImageReply(socket, sender, adminText);
+          await sendReply(socket, sender, adminText);
           break;
         }
 
         case 'tagall': {
-          if (!from.endsWith('@g.us')) {
-            await sendImageReply(socket, sender, '❌ Group only command.');
+          // ADMIN CHECK: Group only + admin only
+          if (!isGroup) {
+            await sendReply(socket, sender, '❌ Group only command.');
             break;
           }
           const isAdmin = await isGroupAdmin(socket, from, nowsender);
           if (!isAdmin) {
-            await sendImageReply(socket, sender, '❌ Group admin only.');
+            await sendReply(socket, sender, '❌ Group admin only.');
             break;
           }
           try {
@@ -1139,274 +1219,316 @@ Reply to messages or mention users with @
               mentions: participants.map(p => p.id)
             }, { quoted: msg });
           } catch(e) {
-            await sendImageReply(socket, sender, '❌ Failed to tag members.');
+            await sendReply(socket, sender, '❌ Failed to tag members.');
           }
           break;
         }
 
         case 'kick': {
-          if (!from.endsWith('@g.us')) {
-            await sendImageReply(socket, sender, '❌ Group only command.');
+          // ADMIN CHECK: Group only + admin only
+          if (!isGroup) {
+            await sendReply(socket, sender, '❌ Group only command.');
             break;
           }
           const isAdmin = await isGroupAdmin(socket, from, nowsender);
           if (!isAdmin) {
-            await sendImageReply(socket, sender, '❌ Group admin only.');
+            await sendReply(socket, sender, '❌ Group admin only.');
             break;
           }
           const target = args[0] || msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
           if (!target) {
-            await sendImageReply(socket, sender, '❌ Usage: .kick @user or reply to user');
+            await sendReply(socket, sender, '❌ Usage: .kick @user or reply to user');
             break;
           }
           try {
             await socket.groupParticipantsUpdate(from, [target], 'remove');
-            await sendImageReply(socket, sender, `✅ User ${target} has been removed from group.`);
+            await sendReply(socket, sender, `✅ User ${target} has been removed from group.`);
           } catch(e) {
-            await sendImageReply(socket, sender, '❌ Failed to kick user.');
+            await sendReply(socket, sender, '❌ Failed to kick user.');
           }
           break;
         }
 
         case 'add': {
-          if (!from.endsWith('@g.us')) {
-            await sendImageReply(socket, sender, '❌ Group only command.');
+          // ADMIN CHECK: Group only + admin only
+          if (!isGroup) {
+            await sendReply(socket, sender, '❌ Group only command.');
             break;
           }
           const isAdmin = await isGroupAdmin(socket, from, nowsender);
           if (!isAdmin) {
-            await sendImageReply(socket, sender, '❌ Group admin only.');
+            await sendReply(socket, sender, '❌ Group admin only.');
             break;
           }
           const phone = args[0];
           if (!phone) {
-            await sendImageReply(socket, sender, '❌ Usage: .add <phone number>');
+            await sendReply(socket, sender, '❌ Usage: .add <phone number>');
             break;
           }
           try {
             const userJid = phone.includes('@') ? phone : phone + '@s.whatsapp.net';
             await socket.groupParticipantsUpdate(from, [userJid], 'add');
-            await sendImageReply(socket, sender, `✅ Added ${phone} to group.`);
+            await sendReply(socket, sender, `✅ Added ${phone} to group.`);
           } catch(e) {
-            await sendImageReply(socket, sender, '❌ Failed to add user.');
+            await sendReply(socket, sender, '❌ Failed to add user.');
           }
           break;
         }
 
         case 'promote': {
-          if (!from.endsWith('@g.us')) {
-            await sendImageReply(socket, sender, '❌ Group only command.');
+          // ADMIN CHECK: Group only + admin only
+          if (!isGroup) {
+            await sendReply(socket, sender, '❌ Group only command.');
             break;
           }
           const isAdmin = await isGroupAdmin(socket, from, nowsender);
           if (!isAdmin) {
-            await sendImageReply(socket, sender, '❌ Group admin only.');
+            await sendReply(socket, sender, '❌ Group admin only.');
             break;
           }
           const target = args[0] || msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
           if (!target) {
-            await sendImageReply(socket, sender, '❌ Usage: .promote @user');
+            await sendReply(socket, sender, '❌ Usage: .promote @user');
             break;
           }
           try {
             await socket.groupParticipantsUpdate(from, [target], 'promote');
-            await sendImageReply(socket, sender, `✅ User ${target} promoted to admin.`);
+            await sendReply(socket, sender, `✅ User ${target} promoted to admin.`);
           } catch(e) {
-            await sendImageReply(socket, sender, '❌ Failed to promote user.');
+            await sendReply(socket, sender, '❌ Failed to promote user.');
           }
           break;
         }
 
         case 'demote': {
-          if (!from.endsWith('@g.us')) {
-            await sendImageReply(socket, sender, '❌ Group only command.');
+          // ADMIN CHECK: Group only + admin only
+          if (!isGroup) {
+            await sendReply(socket, sender, '❌ Group only command.');
             break;
           }
           const isAdmin = await isGroupAdmin(socket, from, nowsender);
           if (!isAdmin) {
-            await sendImageReply(socket, sender, '❌ Group admin only.');
+            await sendReply(socket, sender, '❌ Group admin only.');
             break;
           }
           const target = args[0] || msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
           if (!target) {
-            await sendImageReply(socket, sender, '❌ Usage: .demote @user');
+            await sendReply(socket, sender, '❌ Usage: .demote @user');
             break;
           }
           try {
             await socket.groupParticipantsUpdate(from, [target], 'demote');
-            await sendImageReply(socket, sender, `✅ User ${target} demoted from admin.`);
+            await sendReply(socket, sender, `✅ User ${target} demoted from admin.`);
           } catch(e) {
-            await sendImageReply(socket, sender, '❌ Failed to demote user.');
+            await sendReply(socket, sender, '❌ Failed to demote user.');
           }
           break;
         }
 
         case 'mute': {
-          if (!from.endsWith('@g.us')) {
-            await sendImageReply(socket, sender, '❌ Group only command.');
+          // ADMIN CHECK: Group only + admin only
+          if (!isGroup) {
+            await sendReply(socket, sender, '❌ Group only command.');
             break;
           }
           const isAdmin = await isGroupAdmin(socket, from, nowsender);
           if (!isAdmin) {
-            await sendImageReply(socket, sender, '❌ Group admin only.');
+            await sendReply(socket, sender, '❌ Group admin only.');
             break;
           }
           const settings = groupSettings.get(from) || {};
           settings.muted = true;
           groupSettings.set(from, settings);
-          await sendImageReply(socket, sender, '✅ Bot muted in this group. No replies will be sent.');
+          await sendReply(socket, sender, '✅ Bot muted in this group. No replies will be sent.');
           break;
         }
 
         case 'unmute': {
-          if (!from.endsWith('@g.us')) {
-            await sendImageReply(socket, sender, '❌ Group only command.');
+          // ADMIN CHECK: Group only + admin only
+          if (!isGroup) {
+            await sendReply(socket, sender, '❌ Group only command.');
             break;
           }
           const isAdmin = await isGroupAdmin(socket, from, nowsender);
           if (!isAdmin) {
-            await sendImageReply(socket, sender, '❌ Group admin only.');
+            await sendReply(socket, sender, '❌ Group admin only.');
             break;
           }
           const settings = groupSettings.get(from) || {};
           settings.muted = false;
           groupSettings.set(from, settings);
-          await sendImageReply(socket, sender, '✅ Bot unmuted in this group. Replies enabled.');
+          await sendReply(socket, sender, '✅ Bot unmuted in this group. Replies enabled.');
           break;
         }
 
         case 'welcome': {
-          if (!from.endsWith('@g.us')) {
-            await sendImageReply(socket, sender, '❌ Group only command.');
+          // ADMIN CHECK: Group only + admin only
+          if (!isGroup) {
+            await sendReply(socket, sender, '❌ Group only command.');
             break;
           }
           const isAdmin = await isGroupAdmin(socket, from, nowsender);
           if (!isAdmin) {
-            await sendImageReply(socket, sender, '❌ Group admin only.');
+            await sendReply(socket, sender, '❌ Group admin only.');
             break;
           }
           const state = args[0];
           if (state !== 'on' && state !== 'off') {
-            await sendImageReply(socket, sender, '❌ Usage: .welcome on/off');
+            await sendReply(socket, sender, '❌ Usage: .welcome on/off');
             break;
           }
           const settings = groupSettings.get(from) || {};
           settings.welcome = state === 'on';
           groupSettings.set(from, settings);
-          await sendImageReply(socket, sender, `✅ Welcome messages ${state === 'on' ? 'enabled' : 'disabled'}.`);
+          await sendReply(socket, sender, `✅ Welcome messages ${state === 'on' ? 'enabled' : 'disabled'}.`);
           break;
         }
 
         case 'goodbye': {
-          if (!from.endsWith('@g.us')) {
-            await sendImageReply(socket, sender, '❌ Group only command.');
+          // ADMIN CHECK: Group only + admin only
+          if (!isGroup) {
+            await sendReply(socket, sender, '❌ Group only command.');
             break;
           }
           const isAdmin = await isGroupAdmin(socket, from, nowsender);
           if (!isAdmin) {
-            await sendImageReply(socket, sender, '❌ Group admin only.');
+            await sendReply(socket, sender, '❌ Group admin only.');
             break;
           }
           const state = args[0];
           if (state !== 'on' && state !== 'off') {
-            await sendImageReply(socket, sender, '❌ Usage: .goodbye on/off');
+            await sendReply(socket, sender, '❌ Usage: .goodbye on/off');
             break;
           }
           const settings = groupSettings.get(from) || {};
           settings.goodbye = state === 'on';
           groupSettings.set(from, settings);
-          await sendImageReply(socket, sender, `✅ Goodbye messages ${state === 'on' ? 'enabled' : 'disabled'}.`);
+          await sendReply(socket, sender, `✅ Goodbye messages ${state === 'on' ? 'enabled' : 'disabled'}.`);
           break;
         }
 
         case 'rules': {
-          if (!from.endsWith('@g.us')) {
-            await sendImageReply(socket, sender, '❌ Group only command.');
+          if (!isGroup) {
+            await sendReply(socket, sender, '❌ Group only command.');
             break;
           }
           const settings = groupSettings.get(from) || {};
           const rules = settings.rules || 'No rules set for this group. Use .setrules to add rules.';
-          await sendImageReply(socket, sender, `📜 *GROUP RULES*\n\n${rules}`);
+          await sendReply(socket, sender, `📜 *GROUP RULES*\n\n${rules}`);
           break;
         }
 
         case 'setrules': {
-          if (!from.endsWith('@g.us')) {
-            await sendImageReply(socket, sender, '❌ Group only command.');
+          // ADMIN CHECK: Group only + admin only
+          if (!isGroup) {
+            await sendReply(socket, sender, '❌ Group only command.');
             break;
           }
           const isAdmin = await isGroupAdmin(socket, from, nowsender);
           if (!isAdmin) {
-            await sendImageReply(socket, sender, '❌ Group admin only.');
+            await sendReply(socket, sender, '❌ Group admin only.');
             break;
           }
           const rulesText = args.join(' ');
           if (!rulesText) {
-            await sendImageReply(socket, sender, '❌ Usage: .setrules <rules text>');
+            await sendReply(socket, sender, '❌ Usage: .setrules <rules text>');
             break;
           }
           const settings = groupSettings.get(from) || {};
           settings.rules = rulesText;
           groupSettings.set(from, settings);
-          await sendImageReply(socket, sender, '✅ Group rules updated.');
+          await sendReply(socket, sender, '✅ Group rules updated.');
           break;
         }
 
         case 'setdesc': {
-          if (!from.endsWith('@g.us')) {
-            await sendImageReply(socket, sender, '❌ Group only command.');
+          // ADMIN CHECK: Group only + admin only
+          if (!isGroup) {
+            await sendReply(socket, sender, '❌ Group only command.');
             break;
           }
           const isAdmin = await isGroupAdmin(socket, from, nowsender);
           if (!isAdmin) {
-            await sendImageReply(socket, sender, '❌ Group admin only.');
+            await sendReply(socket, sender, '❌ Group admin only.');
             break;
           }
           const descText = args.join(' ');
           if (!descText) {
-            await sendImageReply(socket, sender, '❌ Usage: .setdesc <description>');
+            await sendReply(socket, sender, '❌ Usage: .setdesc <description>');
             break;
           }
           try {
             await socket.groupUpdateDescription(from, descText);
-            await sendImageReply(socket, sender, '✅ Group description updated.');
+            await sendReply(socket, sender, '✅ Group description updated.');
           } catch(e) {
-            await sendImageReply(socket, sender, '❌ Failed to update description.');
+            await sendReply(socket, sender, '❌ Failed to update description.');
+          }
+          break;
+        }
+
+        case 'setgrouppp': {
+          // ADMIN CHECK: Group only + admin only
+          if (!isGroup) {
+            await sendReply(socket, sender, '❌ Group only command.');
+            break;
+          }
+          const isAdmin = await isGroupAdmin(socket, from, nowsender);
+          if (!isAdmin) {
+            await sendReply(socket, sender, '❌ Group admin only.');
+            break;
+          }
+          const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+          if (!quoted?.imageMessage) {
+            await sendReply(socket, sender, '❌ Please reply to an image.');
+            break;
+          }
+          try {
+            const media = await downloadQuotedMedia(quoted);
+            if (media?.buffer) {
+              await socket.updateProfilePicture(from, media.buffer);
+              await sendReply(socket, sender, '✅ Group profile picture updated.');
+            } else {
+              await sendReply(socket, sender, '❌ Failed to download image.');
+            }
+          } catch(e) {
+            await sendReply(socket, sender, '❌ Failed to update group profile picture.');
           }
           break;
         }
 
         case 'lock': {
-          if (!from.endsWith('@g.us')) {
-            await sendImageReply(socket, sender, '❌ Group only command.');
+          // ADMIN CHECK: Group only + admin only
+          if (!isGroup) {
+            await sendReply(socket, sender, '❌ Group only command.');
             break;
           }
           const isAdmin = await isGroupAdmin(socket, from, nowsender);
           if (!isAdmin) {
-            await sendImageReply(socket, sender, '❌ Group admin only.');
+            await sendReply(socket, sender, '❌ Group admin only.');
             break;
           }
           const settings = groupSettings.get(from) || {};
           settings.locked = true;
           groupSettings.set(from, settings);
-          await sendImageReply(socket, sender, '✅ Group locked. Only admins can send messages.');
+          await sendReply(socket, sender, '✅ Group locked. Only admins can send messages.');
           break;
         }
 
         case 'unlock': {
-          if (!from.endsWith('@g.us')) {
-            await sendImageReply(socket, sender, '❌ Group only command.');
+          // ADMIN CHECK: Group only + admin only
+          if (!isGroup) {
+            await sendReply(socket, sender, '❌ Group only command.');
             break;
           }
           const isAdmin = await isGroupAdmin(socket, from, nowsender);
           if (!isAdmin) {
-            await sendImageReply(socket, sender, '❌ Group admin only.');
+            await sendReply(socket, sender, '❌ Group admin only.');
             break;
           }
           const settings = groupSettings.get(from) || {};
           settings.locked = false;
           groupSettings.set(from, settings);
-          await sendImageReply(socket, sender, '✅ Group unlocked. Everyone can send messages.');
+          await sendReply(socket, sender, '✅ Group unlocked. Everyone can send messages.');
           break;
         }
 
@@ -1432,16 +1554,20 @@ Reply to messages or mention users with @
                         `\`\`\`\n\n` +
                         `*Thank you for your support!* 🙏`;
           
-          await sendImageReply(socket, sender, message);
+          await sendReply(socket, sender, message);
           break;
         }
 
         default:
+          // Unknown command
+          if (isCmd) {
+            await sendReply(socket, sender, `❌ Unknown command: ${command}\nType ${config.PREFIX}help for available commands.`);
+          }
           break;
       }
     } catch (err) {
       console.error('Command handler error:', err);
-      await sendImageReply(socket, sender, '❌ An error occurred while processing your command. Please try again.');
+      await sendReply(socket, sender, '❌ An error occurred while processing your command. Please try again.');
     }
   });
 }
@@ -1454,7 +1580,7 @@ function setupMessageHandlers(socket) {
     
     const sender = msg.key.fromMe ? socket.user.id : (msg.key.participant || msg.key.remoteJid);
     if (isBanned(sender)) {
-      try { await sendImageReply(socket, sender, '❌ You are banned from using bot commands.'); } catch(e) {}
+      try { await sendReply(socket, sender, '❌ You are banned from using bot commands.'); } catch(e) {}
       return;
     }
     
