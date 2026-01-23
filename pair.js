@@ -184,7 +184,7 @@ async function sendImageReply(socket, sender, caption, options = {}) {
 }
 
 // Helper: Send futuristic styled reply with menu button
-async function sendFuturisticReply(socket, sender, title, content, emoji = '🔧', buttons = null) {
+async function sendFuturisticReply(socket, sender, title, content, emoji = '🔧', buttons = null, options = {}) {
     const formattedText = `╭────────￫\n│  ${emoji} ${title}\n│\n${content}\n╰───────￫`;
     
     // Use provided buttons or default menu button
@@ -192,7 +192,9 @@ async function sendFuturisticReply(socket, sender, title, content, emoji = '🔧
         { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "📜 ᴍᴇɴᴜ" } }
     ];
     
-    return await sendImageReply(socket, sender, formattedText, { buttons: replyButtons });
+    // Merge extra options like mentions
+    const msgOptions = { buttons: replyButtons, ...options };
+    return await sendImageReply(socket, sender, formattedText, msgOptions);
 }
 
 // Helper: Check owner permission and send error if not owner
@@ -209,18 +211,14 @@ async function checkOwnerPermission(socket, sender, senderJid, commandName) {
     return true;
 }
 
-// Helper: Check if user is admin in group (UPDATED with logic from commands.js)
+// Helper: Check if user is admin in group
 async function isGroupAdmin(socket, groupJid, userJid) {
     try {
         const metadata = await socket.groupMetadata(groupJid);
         const participants = metadata.participants || [];
-        
-        // Filter for admins and create a list of their JIDs
         const admins = participants
             .filter(p => p.admin === 'admin' || p.admin === 'superadmin')
             .map(p => jidNormalizedUser(p.id));
-            
-        // Check if the user is in the admin list
         return admins.includes(jidNormalizedUser(userJid));
     } catch (e) {
         console.error('Error checking group admin:', e);
@@ -2428,42 +2426,42 @@ function setupCommandHandlers(socket, number) {
 
         // ==================== ANTI CONTENT COMMANDS ====================
         case 'antilink': {
-          await handleAntiCommand(socket, sender, from, senderJid, msg, 'link', args[0]);
+          await handleAntiCommand(socket, sender, from, senderJid, msg, 'link', args);
           break;
         }
 
         case 'antisticker': {
-          await handleAntiCommand(socket, sender, from, senderJid, msg, 'sticker', args[0]);
+          await handleAntiCommand(socket, sender, from, senderJid, msg, 'sticker', args);
           break;
         }
 
         case 'antiaudio': {
-          await handleAntiCommand(socket, sender, from, senderJid, msg, 'audio', args[0]);
+          await handleAntiCommand(socket, sender, from, senderJid, msg, 'audio', args);
           break;
         }
 
         case 'antiimg': {
-          await handleAntiCommand(socket, sender, from, senderJid, msg, 'image', args[0]);
+          await handleAntiCommand(socket, sender, from, senderJid, msg, 'image', args);
           break;
         }
 
         case 'antivideo': {
-          await handleAntiCommand(socket, sender, from, senderJid, msg, 'video', args[0]);
+          await handleAntiCommand(socket, sender, from, senderJid, msg, 'video', args);
           break;
         }
 
         case 'antivv': {
-          await handleAntiCommand(socket, sender, from, senderJid, msg, 'viewonce', args[0]);
+          await handleAntiCommand(socket, sender, from, senderJid, msg, 'viewonce', args);
           break;
         }
 
         case 'antifile': {
-          await handleAntiCommand(socket, sender, from, senderJid, msg, 'file', args[0]);
+          await handleAntiCommand(socket, sender, from, senderJid, msg, 'file', args);
           break;
         }
 
         case 'antigcall': {
-          await handleAntiCommand(socket, sender, from, senderJid, msg, 'gcall', args[0]);
+          await handleAntiCommand(socket, sender, from, senderJid, msg, 'gcall', args);
           break;
         }
 
@@ -2482,71 +2480,63 @@ function setupCommandHandlers(socket, number) {
   });
 }
 
-// Helper function for anti commands
-async function handleAntiCommand(socket, sender, from, senderJid, msg, antiType, state) {
+// Helper function for anti commands (UPDATED to match user snippet)
+async function handleAntiCommand(socket, sender, from, senderJid, msg, antiType, args) {
   if (!from.endsWith('@g.us')) {
     await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ ᴡᴏʀᴋs ᴏɴʟʏ ɪɴ ɢʀᴏᴜᴘs.', '❌');
     return;
   }
-  
-  const isAdmin = await isGroupAdmin(socket, from, senderJid);
-  const isOwnerUser = isOwner(senderJid);
-  
-  if (!isAdmin && !isOwnerUser) {
-    await sendFuturisticReply(socket, sender, 'ᴘᴇʀᴍɪssɪᴏɴ ᴅᴇɴɪᴇᴅ', 'ᴏɴʟʏ ɢʀᴏᴜᴘ ᴀᴅᴍɪɴs ᴏʀ ʙᴏᴛ ᴏᴡɴᴇʀ ᴄᴀɴ ᴜsᴇ ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ.', '❌');
-    return;
-  }
-  
-  if (!state || (state !== 'on' && state !== 'off')) {
-    const antiNames = {
-      link: 'ʟɪɴᴋ',
-      sticker: 'sᴛɪᴄᴋᴇʀ',
-      audio: 'ᴀᴜᴅɪᴏ',
-      image: 'ɪᴍᴀɢᴇ',
-      video: 'ᴠɪᴅᴇᴏ',
-      viewonce: 'ᴠɪᴇᴡ-ᴏɴᴄᴇ',
-      file: 'ғɪʟᴇ',
-      gcall: 'ɢʀᴏᴜᴘ ᴄᴀʟʟ'
-    };
-    
-    await sendFuturisticReply(socket, sender, 'ᴜsᴀɢᴇ', 
-      `.ᴀɴᴛɪ${antiType} ᴏɴ/ᴏғғ\n\nᴇxᴀᴍᴘʟᴇ:\n.ᴀɴᴛɪ${antiType} ᴏɴ\n.ᴀɴᴛɪ${antiType} ᴏғғ\n\nʙʟᴏᴄᴋs ${antiNames[antiType]} ᴄᴏɴᴛᴇɴᴛ ɪɴ ᴛʜɪs ɢʀᴏᴜᴘ.`, 
-      '⚠️'
-    );
-    return;
-  }
-  
+
+  // 1. Fetch Metadata & Admins (Logic from snippet)
+  let meta;
   try {
-    const emojiMap = {
-      link: '🔗',
-      sticker: '🖼️',
-      audio: '🎵',
-      image: '📸',
-      video: '🎥',
-      viewonce: '👁️',
-      file: '📁',
-      gcall: '📞'
-    };
-    
-    try { await socket.sendMessage(sender, { react: { text: emojiMap[antiType] || '⚠️', key: msg.key } }); } catch(e){}
-    
-    const settings = await updateAntiSetting(from, antiType, state === 'on');
-    
-    if (settings) {
-      const statusText = state === 'on' ? 'ᴇɴᴀʙʟᴇᴅ ✅' : 'ᴅɪsᴀʙʟᴇᴅ ❌';
-      const actionText = state === 'on' ? 'ᴡɪʟʟ ɴᴏᴡ ʙᴇ ʙʟᴏᴄᴋᴇᴅ 🔒' : 'ɪs ɴᴏᴡ ᴀʟʟᴏᴡᴇᴅ ✅';
-      
-      await sendFuturisticReply(socket, sender, `ᴀɴᴛɪ-${antiType} ${statusText}`, 
-        `ᴀɴᴛɪ-${antiType} ʜᴀs ʙᴇᴇɴ ${statusText}\n\n${antiType} ᴄᴏɴᴛᴇɴᴛ ${actionText} ɪɴ ᴛʜɪs ɢʀᴏᴜᴘ.`, 
-        state === 'on' ? '✅' : '❌'
-      );
-    } else {
-      await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', `ғᴀɪʟᴇᴅ ᴛᴏ ᴜᴘᴅᴀᴛᴇ ᴀɴᴛɪ-${antiType} sᴇᴛᴛɪɴɢ.`, '❌');
-    }
-  } catch(e) {
-    console.error(`Anti ${antiType} error:`, e);
-    await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', `ғᴀɪʟᴇᴅ ᴛᴏ ᴜᴘᴅᴀᴛᴇ ᴀɴᴛɪ-${antiType} sᴇᴛᴛɪɴɢ.`, '❌');
+    meta = await socket.groupMetadata(from);
+  } catch (e) {
+    console.error('Failed to fetch group metadata', e);
+    await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ғᴇᴛᴄʜ ɢʀᴏᴜᴘ ɪɴғᴏ.', '❌');
+    return;
   }
+
+  const admins = meta.participants
+    .filter(p => p.admin)
+    .map(p => jidNormalizedUser(p.id));
+
+  const normalizedSender = jidNormalizedUser(senderJid);
+  const isUserAdmin = admins.includes(normalizedSender);
+  const isUserOwner = isOwner(normalizedSender);
+
+  // 2. Permission Check
+  if (!isUserAdmin && !isUserOwner) {
+    await sendFuturisticReply(socket, sender, 'ᴘᴇʀᴍɪssɪᴏɴ ᴅᴇɴɪᴇᴅ', '❌ ᴏɴʟʏ ᴀᴅᴍɪɴs ᴄᴀɴ ᴄʜᴀɴɢᴇ ᴛʜɪs sᴇᴛᴛɪɴɢ!', '❌');
+    return;
+  }
+
+  // 3. Load & Update Settings
+  const settings = await loadGroupSettings(from);
+  
+  // Determine new state: if arg provided (on/off), use it. Else toggle.
+  let newState;
+  const input = args ? args[0]?.toLowerCase() : null;
+  
+  if (input === 'on' || input === 'enable') newState = true;
+  else if (input === 'off' || input === 'disable') newState = false;
+  else newState = !settings.anti[antiType]; // Toggle
+
+  // Update
+  await updateAntiSetting(from, antiType, newState);
+
+  // 4. Response (Styled like pair.js but using snippet's logic structure)
+  const status = newState ? "ENABLED ✅" : "DISABLED ❌";
+  const action = newState ? "will be automatically deleted" : "are now allowed";
+  
+  await sendFuturisticReply(socket, sender, `ᴀɴᴛɪ-${antiType.toUpperCase()} sᴇᴛᴛɪɴɢs`,
+    `😀 Anti-${antiType} protection has been ${status}\n\n${antiType}s ${action} in this group.\nChanged by: @${senderJid.split("@")[0]}`,
+    newState ? '✅' : '❌',
+    // Options
+    { 
+        mentions: [senderJid] 
+    }
+  );
 }
 
 // ---------------- message handlers ----------------
