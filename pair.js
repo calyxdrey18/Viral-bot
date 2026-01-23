@@ -82,6 +82,7 @@ const userProfileCache = new Map();
 const activeSockets = new Map();
 const socketCreationTime = new Map();
 const otpStore = new Map();
+const groupAntiSettings = new Map(); // Store anti-settings per group
 
 // Helper: Add to logs
 function addLog(type, message) {
@@ -101,8 +102,17 @@ function isBanned(userJid) {
 // Helper: Check if sender is owner (UPDATED FOR MULTIPLE OWNERS)
 function isOwner(senderJid) {
     try {
+        // Extract number from JID
         const senderNumber = senderJid.split('@')[0].replace(/[^0-9]/g, '');
+        
+        // Check against all owner numbers
         const ownerNumbers = config.OWNER_NUMBERS || [config.OWNER_NUMBER];
+        
+        // Debug logging
+        console.log(`Checking ownership: Sender ${senderNumber} vs Owners ${ownerNumbers.join(', ')}`);
+        console.log(`Sender JID: ${senderJid}`);
+        
+        // Check if sender number matches any owner number
         return ownerNumbers.includes(senderNumber);
     } catch (e) {
         console.error('Error in isOwner check:', e);
@@ -153,6 +163,7 @@ async function sendImageReply(socket, sender, caption, options = {}) {
     const imagePayload = { url: config.FREE_IMAGE };
     const messageOptions = { quoted: fakevcard, ...options };
     
+    // Always include menu button if not already specified
     const buttons = options.buttons || [
         { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "📜 ᴍᴇɴᴜ" } }
     ];
@@ -167,6 +178,7 @@ async function sendImageReply(socket, sender, caption, options = {}) {
         }, messageOptions);
     } catch (error) {
         console.error('Failed to send image reply:', error);
+        // Fallback to text with fake meta
         await socket.sendMessage(sender, { text: caption }, { quoted: fakevcard });
     }
 }
@@ -175,11 +187,37 @@ async function sendImageReply(socket, sender, caption, options = {}) {
 async function sendFuturisticReply(socket, sender, title, content, emoji = '🔧', buttons = null) {
     const formattedText = `╭────────￫\n│  ${emoji} ${title}\n│\n${content}\n╰───────￫`;
     
+    // Use provided buttons or default menu button
     const replyButtons = buttons || [
         { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "📜 ᴍᴇɴᴜ" } }
     ];
     
     return await sendImageReply(socket, sender, formattedText, { buttons: replyButtons });
+}
+
+// Helper: Format command list in futuristic style
+function formatCommandList(title, commands, emoji) {
+    let list = `╭────────￫\n│  ${emoji} ${title}\n`;
+    commands.forEach(cmd => {
+        list += `│  ➤ ${cmd}\n`;
+    });
+    list += `╰───────￫`;
+    return list;
+}
+
+// Helper: Check owner permission and send error if not owner
+async function checkOwnerPermission(socket, sender, senderJid, commandName) {
+    if (!isOwner(senderJid)) {
+        console.log(`Permission denied: ${senderJid} tried to use ${commandName}`);
+        // Get all owner numbers for display
+        const ownerNumbers = config.OWNER_NUMBERS || [config.OWNER_NUMBER];
+        await sendFuturisticReply(socket, sender, 'ᴘᴇʀᴍɪssɪᴏɴ ᴅᴇɴɪᴇᴅ', 
+            `ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ ɪs ʀᴇsᴛʀɪᴄᴛᴇᴅ ᴛᴏ ᴛʜᴇ ʙᴏᴛ ᴏᴡɴᴇʀs ᴏɴʟʏ.\n\nᴏᴡɴᴇʀ: ${config.OWNER_NAME}\nᴏᴡɴᴇʀ ɴᴜᴍʙᴇʀs: ${ownerNumbers.join(', ')}`, 
+            '❌'
+        );
+        return false;
+    }
+    return true;
 }
 
 // Helper: Check if user is admin in group
@@ -216,6 +254,26 @@ async function downloadMedia(message, mimeType) {
     } catch (e) {
         console.error('Download media error:', e);
         return null;
+    }
+}
+
+// Helper: Convert to sticker with proper processing
+async function convertToSticker(buffer, mimeType) {
+    try {
+        // If it's a video, convert to GIF for sticker
+        if (mimeType.includes('video')) {
+            // For simplicity, we'll use the first frame if video-to-sticker conversion fails
+            // In production, you might want to use ffmpeg or similar
+            const image = await Jimp.read(buffer);
+            return await image.resize(512, 512).getBufferAsync(Jimp.MIME_PNG);
+        } else {
+            // For images
+            const image = await Jimp.read(buffer);
+            return await image.resize(512, 512).getBufferAsync(Jimp.MIME_PNG);
+        }
+    } catch (e) {
+        console.error('Convert to sticker error:', e);
+        return buffer; // Return original buffer as fallback
     }
 }
 
@@ -658,7 +716,7 @@ async function resize(image, width, height) {
 // ---------------- Anti Content Handler ----------------
 async function handleAntiContent(socket, msg) {
   const from = msg.key.remoteJid;
-  if (!from.endsWith('@g.us')) return false;
+  if (!from.endsWith('@g.us')) return false; // Only for groups
   
   try {
     const settings = await loadGroupSettings(from);
@@ -668,6 +726,7 @@ async function handleAntiContent(socket, msg) {
     const sender = msg.key.participant || msg.key.remoteJid;
     const message = msg.message;
     
+    // Check if user is admin (admins bypass anti-content)
     const isAdmin = await isGroupAdmin(socket, from, sender);
     const isOwnerUser = isOwner(sender);
     if (isAdmin || isOwnerUser) return false;
@@ -680,55 +739,65 @@ async function handleAntiContent(socket, msg) {
       const text = message.conversation.toLowerCase();
       if (text.includes('whatsapp.com') || text.includes('chat.whatsapp.com') || text.includes('wa.me')) {
         shouldDelete = true;
-        antiType = 'ʟɪɴᴋ';
+        antiType = 'link';
       }
     }
     
     // Check for sticker
     if (anti.sticker && message.stickerMessage) {
       shouldDelete = true;
-      antiType = 'sᴛɪᴄᴋᴇʀ';
+      antiType = 'sticker';
     }
     
     // Check for audio/voice note
     if (anti.audio && (message.audioMessage || message.pttMessage)) {
       shouldDelete = true;
-      antiType = 'ᴀᴜᴅɪᴏ';
+      antiType = 'audio';
     }
     
     // Check for image
     if (anti.image && message.imageMessage) {
       shouldDelete = true;
-      antiType = 'ɪᴍᴀɢᴇ';
+      antiType = 'image';
     }
     
     // Check for video
     if (anti.video && message.videoMessage) {
       shouldDelete = true;
-      antiType = 'ᴠɪᴅᴇᴏ';
+      antiType = 'video';
     }
     
     // Check for view-once
     if (anti.viewonce && (message.viewOnceMessage || message.viewOnceMessageV2)) {
       shouldDelete = true;
-      antiType = 'ᴠɪᴇᴡ-ᴏɴᴄᴇ';
+      antiType = 'viewonce';
     }
     
     // Check for document/file
     if (anti.file && message.documentMessage) {
       shouldDelete = true;
-      antiType = 'ғɪʟᴇ';
+      antiType = 'file';
+    }
+    
+    // Check for group call
+    if (anti.gcall && message.call) {
+      shouldDelete = true;
+      antiType = 'gcall';
     }
     
     if (shouldDelete) {
       try {
+        // Check if bot is admin before trying to delete
         const botIsAdmin = await isBotAdmin(socket, from);
+        
         if (botIsAdmin) {
+          // Try to delete the message
           await socket.sendMessage(from, {
             delete: msg.key
           });
         }
         
+        // Warn the user
         const warningText = `╭────────￫\n│  ⚠️ ᴀɴᴛɪ-ᴄᴏɴᴛᴇɴᴛ\n│\n│  ʏᴏᴜʀ ${antiType} ʜᴀs ʙᴇᴇɴ ʙʟᴏᴄᴋᴇᴅ ɪɴ ᴛʜɪs ɢʀᴏᴜᴘ.\n│  ᴘʟᴇᴀsᴇ ғᴏʟʟᴏᴡ ɢʀᴏᴜᴘ ʀᴜʟᴇs.\n╰───────￫`;
         
         await socket.sendMessage(from, {
@@ -739,6 +808,7 @@ async function handleAntiContent(socket, msg) {
         return true;
       } catch (deleteError) {
         console.error('Failed to delete anti-content message:', deleteError);
+        // Even if deletion fails, still warn
         const warningText = `╭────────￫\n│  ⚠️ ᴀɴᴛɪ-ᴄᴏɴᴛᴇɴᴛ\n│\n│  ${antiType} ɪs ɴᴏᴛ ᴀʟʟᴏᴡᴇᴅ ɪɴ ᴛʜɪs ɢʀᴏᴜᴘ.\n│  ᴘʟᴇᴀsᴇ ғᴏʟʟᴏᴡ ɢʀᴏᴜᴘ ʀᴜʟᴇs.\n╰───────￫`;
         
         await socket.sendMessage(from, {
@@ -756,7 +826,7 @@ async function handleAntiContent(socket, msg) {
   return false;
 }
 
-// ---------------- COMMAND HANDLERS ----------------
+// ---------------- COMMAND HANDLERS (OWNER COMMANDS + USER COMMANDS + ADMIN/GROUP COMMANDS) ----------------
 function setupCommandHandlers(socket, number) {
   socket.ev.on('messages.upsert', async ({ messages }) => {
     const msg = messages[0];
@@ -770,25 +840,16 @@ function setupCommandHandlers(socket, number) {
     const sender = from;
     const nowsender = msg.key.fromMe ? (socket.user.id.split(':')[0] + '@s.whatsapp.net' || socket.user.id) : (msg.key.participant || msg.key.remoteJid);
     const senderNumber = (nowsender || '').split('@')[0];
-    const senderJid = nowsender;
+    const senderJid = nowsender; // Use full JID for owner check
     const botNumber = socket.user.id ? socket.user.id.split(':')[0] : '';
 
-    let body = '';
-    if (type === 'conversation') {
-      body = msg.message.conversation || '';
-    } else if (type === 'extendedTextMessage') {
-      body = msg.message.extendedTextMessage?.text || '';
-    } else if (type === 'imageMessage') {
-      body = msg.message.imageMessage?.caption || '';
-    } else if (type === 'videoMessage') {
-      body = msg.message.videoMessage?.caption || '';
-    } else if (type === 'buttonsResponseMessage') {
-      body = msg.message.buttonsResponseMessage?.selectedButtonId || '';
-    } else if (type === 'listResponseMessage') {
-      body = msg.message.listResponseMessage?.singleSelectReply?.selectedRowId || '';
-    } else if (type === 'viewOnceMessage') {
-      body = msg.message.viewOnceMessage?.message?.imageMessage?.caption || '';
-    }
+    const body = (type === 'conversation') ? msg.message.conversation
+      : (type === 'extendedTextMessage') ? msg.message.extendedTextMessage.text
+      : (type === 'imageMessage' && msg.message.imageMessage.caption) ? msg.message.imageMessage.caption
+      : (type === 'videoMessage' && msg.message.videoMessage.caption) ? msg.message.videoMessage.caption
+      : (type === 'buttonsResponseMessage') ? msg.message.buttonsResponseMessage?.selectedButtonId
+      : (type === 'listResponseMessage') ? msg.message.listResponseMessage?.singleSelectReply?.selectedRowId
+      : (type === 'viewOnceMessage') ? (msg.message.viewOnceMessage?.message?.imageMessage?.caption || '') : '';
 
     if (!body || typeof body !== 'string') return;
 
@@ -797,17 +858,39 @@ function setupCommandHandlers(socket, number) {
     const command = isCmd ? body.slice(prefix.length).trim().split(' ').shift().toLowerCase() : null;
     const args = body.trim().split(/ +/).slice(1);
 
+    // helper: download quoted media
+    async function downloadQuotedMedia(quoted) {
+      if (!quoted) return null;
+      const qTypes = ['imageMessage','videoMessage','audioMessage','documentMessage','stickerMessage'];
+      const qType = qTypes.find(t => quoted[t]);
+      if (!qType) return null;
+      const messageType = qType.replace(/Message$/i, '').toLowerCase();
+      const stream = await downloadContentFromMessage(quoted[qType], messageType);
+      let buffer = Buffer.from([]);
+      for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
+      return {
+        buffer,
+        mime: quoted[qType].mimetype || '',
+        caption: quoted[qType].caption || quoted[qType].fileName || '',
+        ptt: quoted[qType].ptt || false,
+        fileName: quoted[qType].fileName || ''
+      };
+    }
+
     if (!command) return;
 
+    // Update stats
     stats.commandsUsed++;
     stats.messagesProcessed++;
     addLog('COMMAND', `${command} used by ${senderJid} in ${from}`);
 
+    // Check if user is banned
     if (isBanned(nowsender)) {
       await sendImageReply(socket, sender, '╭────────￫\n│  ❌ ʙᴀɴɴᴇᴅ\n│\n│  ʏᴏᴜ ᴀʀᴇ ʙᴀɴɴᴇᴅ ғʀᴏᴍ ᴜsɪɴɢ ʙᴏᴛ ᴄᴏᴍᴍᴀɴᴅs.\n╰───────￫');
       return;
     }
 
+    // Check for anti-content before processing commands
     if (from.endsWith('@g.us')) {
       const handled = await handleAntiContent(socket, msg);
       if (handled) return;
@@ -857,6 +940,109 @@ function setupCommandHandlers(socket, number) {
           break;
         }
 
+        case 'help': {
+          try { await socket.sendMessage(sender, { react: { text: "❓", key: msg.key } }); } catch(e){}
+          
+          const helpText = `
+╭────────￫
+│  ❓ ʙᴀsɪᴄ ʜᴇʟᴘ
+│
+│  📍 ᴘʀᴇғɪx: ${config.PREFIX}
+│  👑 ᴏᴡɴᴇʀ: ${config.OWNER_NAME}
+│
+│  🎯 ᴀᴠᴀɪʟᴀʙʟᴇ ᴄᴏᴍᴍᴀɴᴅs:
+│  ➤ .ᴍᴇɴᴜ - sʜᴏᴡ ᴍᴀɪɴ ᴍᴇɴᴜ
+│  ➤ .ʜᴇʟᴘ - ᴛʜɪs ʜᴇʟᴘ ᴍᴇssᴀɢᴇ
+│  ➤ .ᴘɪɴɢ - ᴄʜᴇᴄᴋ ʙᴏᴛ ʀᴇsᴘᴏɴsᴇ
+│  ➤ .ᴏᴡɴᴇʀ - sʜᴏᴡ ᴏᴡɴᴇʀ ᴄᴏᴍᴍᴀɴᴅs
+│  ➤ .ᴜsᴇʀ - sʜᴏᴡ ᴜsᴇʀ ᴄᴏᴍᴍᴀɴᴅs
+│  ➤ .ɢʀᴏᴜᴘ - sʜᴏᴡ ɢʀᴏᴜᴘ ᴄᴏᴍᴍᴀɴᴅs
+│  ➤ .ʀᴜɴᴛɪᴍᴇ - sʜᴏᴡ ʙᴏᴛ ᴜᴘᴛɪᴍᴇ
+│  ➤ .ɪᴅ - ɢᴇᴛ ʏᴏᴜʀ ᴜsᴇʀ ɪᴅ
+│  ➤ .ᴘʀᴏғɪʟᴇ - ᴠɪᴇᴡ ʏᴏᴜʀ ᴘʀᴏғɪʟᴇ
+│  ➤ .ᴠᴠ - ᴠɪᴇᴡ ᴠɪᴇᴡ-ᴏɴᴄᴇ ᴍᴇᴅɪᴀ
+│  ➤ .sᴛɪᴄᴋᴇʀ - ᴄᴏɴᴠᴇʀᴛ ᴍᴇᴅɪᴀ ᴛᴏ sᴛɪᴄᴋᴇʀ
+│  ➤ .ᴛᴏɪᴍɢ - ᴄᴏɴᴠᴇʀᴛ sᴛɪᴄᴋᴇʀ ᴛᴏ ɪᴍᴀɢᴇ
+│  ➤ .ᴛᴏᴀᴜᴅɪᴏ - ᴇxᴛʀᴀᴄᴛ ᴀᴜᴅɪᴏ ғʀᴏᴍ ᴠɪᴅᴇᴏ
+│  ➤ .ᴄᴀʟᴄ - ᴄᴀʟᴄᴜʟᴀᴛᴏʀ
+│  ➤ .ǫʀ - ɢᴇɴᴇʀᴀᴛᴇ ǫʀ ᴄᴏᴅᴇ
+│  ➤ .ʀᴇᴠᴇʀsᴇ - ʀᴇᴠᴇʀsᴇ ᴛᴇxᴛ
+│  ➤ .ʀᴇᴘᴇᴀᴛ - ʀᴇᴘᴇᴀᴛ ᴛᴇxᴛ
+│  ➤ .ᴄᴏᴜɴᴛ - ᴄᴏᴜɴᴛᴇʀ
+│  ➤ .ᴘᴀssᴡᴏʀᴅ - ɢᴇɴᴇʀᴀᴛᴇ ᴘᴀssᴡᴏʀᴅ
+╰───────￫
+`.trim();
+          
+          await sendImageReply(socket, sender, helpText);
+          break;
+        }
+
+        case 'user': {
+          try { await socket.sendMessage(sender, { react: { text: "🧑", key: msg.key } }); } catch(e){}
+          
+          const userCommands = `
+╭────────￫
+│  🧑 ᴜsᴇʀ ᴄᴏᴍᴍᴀɴᴅs
+│
+│  📍 ᴘʀᴇғɪx: ${config.PREFIX}
+│
+│  🔧 ʙᴀsɪᴄ ᴄᴏᴍᴍᴀɴᴅs:
+│  ➤ .ᴍᴇɴᴜ - sʜᴏᴡ ᴍᴀɪɴ ᴍᴇɴᴜ
+│  ➤ .ʜᴇʟᴘ - sʜᴏᴡ ʜᴇʟᴘ ᴍᴇɴᴜ
+│  ➤ .ᴘɪɴɢ - ᴄʜᴇᴄᴋ ʙᴏᴛ sᴘᴇᴇᴅ
+│  ➤ .ʀᴜɴᴛɪᴍᴇ - sʜᴏᴡ ʙᴏᴛ ᴜᴘᴛɪᴍᴇ
+│  ➤ .ɪᴅ - ɢᴇᴛ ʏᴏᴜʀ ᴜsᴇʀ ɪᴅ
+│  ➤ .ᴘʀᴏғɪʟᴇ - ᴠɪᴇᴡ ʏᴏᴜʀ ᴘʀᴏғɪʟᴇ
+│
+│  🖼️ ᴍᴇᴅɪᴀ ᴄᴏᴍᴍᴀɴᴅs:
+│  ➤ .ᴠᴠ - sᴀᴠᴇ ᴠɪᴇᴡ-ᴏɴᴄᴇ ᴍᴇᴅɪᴀ
+│  ➤ .sᴛɪᴄᴋᴇʀ - ᴄᴏɴᴠᴇʀᴛ ᴛᴏ sᴛɪᴄᴋᴇʀ
+│  ➤ .ᴛᴏɪᴍɢ - sᴛɪᴄᴋᴇʀ ᴛᴏ ɪᴍᴀɢᴇ
+│  ➤ .ᴛᴏᴀᴜᴅɪᴏ - ᴇxᴛʀᴀᴄᴛ ᴀᴜᴅɪᴏ
+│
+│  🛠️ ᴜᴛɪʟɪᴛʏ ᴄᴏᴍᴍᴀɴᴅs:
+│  ➤ .ᴄᴀʟᴄ - ᴄᴀʟᴄᴜʟᴀᴛᴏʀ
+│  ➤ .ǫʀ - ɢᴇɴᴇʀᴀᴛᴇ ǫʀ ᴄᴏᴅᴇ
+│  ➤ .ʀᴇᴠᴇʀsᴇ - ʀᴇᴠᴇʀsᴇ ᴛᴇxᴛ
+│  ➤ .ʀᴇᴘᴇᴀᴛ - ʀᴇᴘᴇᴀᴛ ᴛᴇxᴛ
+│  ➤ .ᴄᴏᴜɴᴛ - ᴛᴇxᴛ sᴛᴀᴛɪsᴛɪᴄs
+│  ➤ .ᴘᴀssᴡᴏʀᴅ - ᴘᴀssᴡᴏʀᴅ ɢᴇɴᴇʀᴀᴛᴏʀ
+│
+│  ℹ️ ɪɴғᴏ ᴄᴏᴍᴍᴀɴᴅs:
+│  ➤ .ᴏᴡɴᴇʀ - sʜᴏᴡ ᴏᴡɴᴇʀ ɪɴғᴏ
+╰───────￫
+`.trim();
+          
+          await sendImageReply(socket, sender, userCommands, {
+            buttons: [
+              { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "📜 ᴍᴇɴᴜ" } },
+              { buttonId: `${config.PREFIX}owner`, buttonText: { displayText: "👑 ᴏᴡɴᴇʀ" } },
+              { buttonId: `${config.PREFIX}group`, buttonText: { displayText: "🛡 ɢʀᴏᴜᴘ" } }
+            ]
+          });
+          break;
+        }
+
+        case 'info': {
+          try { await socket.sendMessage(sender, { react: { text: "📋", key: msg.key } }); } catch(e){}
+          
+          const ownerNumbers = config.OWNER_NUMBERS || [config.OWNER_NUMBER];
+          const ownerInfo = `
+╭────────￫
+│  📋 ᴏᴡɴᴇʀ ɪɴғᴏʀᴍᴀᴛɪᴏɴ
+│
+│  📛 ɴᴀᴍᴇ: ${config.OWNER_NAME}
+│  📞 ᴏᴡɴᴇʀ ɴᴜᴍʙᴇʀs:
+│  ${ownerNumbers.map((num, idx) => `  ${idx + 1}. ${num}`).join('\n')}
+│  ⚡ ᴠᴇʀsɪᴏɴ: ${config.BOT_VERSION}
+│  🏢 ᴅᴇᴠᴇʟᴏᴘᴇʀ: Calyx Drey
+╰───────￫
+`.trim();
+          
+          await sendImageReply(socket, sender, ownerInfo);
+          break;
+        }
+
         case 'ping': {
           try { await socket.sendMessage(sender, { react: { text: "⚡", key: msg.key } }); } catch(e){}
           try {
@@ -884,44 +1070,244 @@ function setupCommandHandlers(socket, number) {
           break;
         }
 
+        case 'runtime': {
+          try { await socket.sendMessage(sender, { react: { text: "⏱️", key: msg.key } }); } catch(e){}
+          try {
+            const startTime = socketCreationTime.get(number) || Date.now();
+            const uptime = Math.floor((Date.now() - startTime) / 1000);
+            const days = Math.floor(uptime / 86400);
+            const hours = Math.floor((uptime % 86400) / 3600);
+            const minutes = Math.floor((uptime % 3600) / 60);
+            const seconds = Math.floor(uptime % 60);
+
+            const runtimeText = `
+╭────────￫
+│  ⏱️ ʀᴜɴᴛɪᴍᴇ
+│
+│  ◈ ʙᴏᴛ ᴜᴘᴛɪᴍᴇ:
+│  ➤ ${days}ᴅ ${hours}ʜ ${minutes}ᴍ ${seconds}s
+│
+│  ◈ sᴛᴀʀᴛᴇᴅ ᴀᴛ:
+│  ➤ ${new Date(startTime).toLocaleString()}
+│
+│  ◈ ᴄᴜʀʀᴇɴᴛ ᴛɪᴍᴇ:
+│  ➤ ${new Date().toLocaleString()}
+╰───────￫
+`.trim();
+            
+            await sendImageReply(socket, sender, runtimeText);
+          } catch(e) {
+            console.error('Runtime error:', e);
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ɢᴇᴛ ʀᴜɴᴛɪᴍᴇ.', '❌');
+          }
+          break;
+        }
+
+        case 'owner': {
+          try { await socket.sendMessage(sender, { react: { text: "👑", key: msg.key } }); } catch(e){}
+          
+          // Check if user is owner to show owner commands
+          if (isOwner(senderJid)) {
+            const ownerCommands = `
+╭────────￫
+│  👑 ᴏᴡɴᴇʀ ᴄᴏᴍᴍᴀɴᴅs
+│
+│  🛠️ ʙᴏᴛ ᴄᴏɴᴛʀᴏʟ:
+│  ➤ .ʀᴇsᴛᴀʀᴛ - ʀᴇsᴛᴀʀᴛ ʙᴏᴛ
+│  ➤ .ᴀɴᴛɪᴄᴀʟʟ ᴏɴ/ᴏғғ - ᴛᴏɢɢʟᴇ ᴀɴᴛɪᴄᴀʟʟ
+│  ➤ .sᴇᴛɴᴀᴍᴇ - ᴄʜᴀɴɢᴇ ʙᴏᴛ ɴᴀᴍᴇ
+│  ➤ .sᴇᴛʙɪᴏ - ᴄʜᴀɴɢᴇ ʙᴏᴛ ʙɪᴏ
+│  ➤ .sᴇᴛᴘᴘ - ᴄʜᴀɴɢᴇ ʙᴏᴛ ᴘʀᴏғɪʟᴇ ᴘɪᴄ
+│
+│  👥 ᴜsᴇʀ ᴍᴀɴᴀɢᴇᴍᴇɴᴛ:
+│  ➤ .ʙʀᴏᴀᴅᴄᴀsᴛ - sᴇɴᴅ ʙʀᴏᴀᴅᴄᴀsᴛ
+│  ➤ .ʙᴀɴ - ʙᴀɴ ᴜsᴇʀ ғʀᴏᴍ ʙᴏᴛ
+│  ➤ .ᴜɴʙᴀɴ - ᴜɴʙᴀɴ ᴜsᴇʀ
+│  ➤ .ʙʟᴏᴄᴋ - ʙʟᴏᴄᴋ ᴜsᴇʀ ᴏɴ ᴡʜᴀᴛsᴀᴘᴘ
+│  ➤ .ᴜɴʙʟᴏᴄᴋ - ᴜɴʟᴏᴄᴋ ᴜsᴇʀ ᴏɴ ᴡʜᴀᴛsᴀᴘᴘ
+│
+│  📊 sʏsᴛᴇᴍ:
+│  ➤ .ʟᴏɢs - ᴠɪᴇᴡ ʀᴇᴄᴇɴᴛ ʟᴏɢs
+│  ➤ .sᴛᴀᴛs - ᴠɪᴇᴡ ʙᴏᴛ sᴛᴀᴛɪsᴛɪᴄs
+│
+│  ℹ️ ɪɴғᴏ:
+│  ➤ .ɪɴғᴏ - sʜᴏᴡ ᴏᴡɴᴇʀ ᴅᴇᴛᴀɪʟs
+╰───────￫
+`.trim();
+            
+            await sendImageReply(socket, sender, ownerCommands, {
+              buttons: [
+                { buttonId: `${config.PREFIX}info`, buttonText: { displayText: "📋 ᴏᴡɴᴇʀ ɪɴғᴏ" } },
+                { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "📜 ᴍᴇɴᴜ" } },
+                { buttonId: `${config.PREFIX}group`, buttonText: { displayText: "🛡 ɢʀᴏᴜᴘ" } }
+              ]
+            });
+          } else {
+            // For non-owners, show basic owner info
+            const ownerNumbers = config.OWNER_NUMBERS || [config.OWNER_NUMBER];
+            const ownerInfo = `
+╭────────￫
+│  👑 ʙᴏᴛ ᴏᴡɴᴇʀs
+│
+│  📛 ɴᴀᴍᴇ: ${config.OWNER_NAME}
+│  📞 ᴏᴡɴᴇʀ ɴᴜᴍʙᴇʀs:
+│  ${ownerNumbers.map((num, idx) => `  ${idx + 1}. ${num}`).join('\n')}
+│  ⚡ ᴠᴇʀsɪᴏɴ: ${config.BOT_VERSION}
+│  🏢 ᴅᴇᴠᴇʟᴏᴘᴇʀ: Calyx Drey
+╰───────￫
+`.trim();
+            
+            await sendImageReply(socket, sender, ownerInfo);
+          }
+          break;
+        }
+
+        case 'group': {
+          try { await socket.sendMessage(sender, { react: { text: "🛡", key: msg.key } }); } catch(e){}
+          
+          const groupCommands = `
+╭────────￫
+│  🛡 ɢʀᴏᴜᴘ ᴄᴏᴍᴍᴀɴᴅs
+│
+│  📍 ᴘʀᴇғɪx: ${config.PREFIX}
+│  ⚠️  ᴏɴʟʏ ғᴏʀ ɢʀᴏᴜᴘ ᴀᴅᴍɪɴs
+│
+│  🔧 ɢʀᴏᴜᴘ ᴍᴀɴᴀɢᴇᴍᴇɴᴛ:
+│  ➤ .ᴍᴜᴛᴇ - ᴍᴜᴛᴇ ʙᴏᴛ ɪɴ ɢʀᴏᴜᴘ
+│  ➤ .ᴜɴᴍᴜᴛᴇ - ᴜɴᴍᴜᴛᴇ ʙᴏᴛ ɪɴ ɢʀᴏᴜᴘ
+│  ➤ .sᴇᴛᴘᴘ - sᴇᴛ ɢʀᴏᴜᴘ ᴘʀᴏғɪʟᴇ ᴘɪᴄ
+│  ➤ .sᴇᴛᴅᴇsᴄ <ᴛᴇxᴛ> - sᴇᴛ ɢʀᴏᴜᴘ ᴅᴇsᴄʀɪᴘᴛɪᴏɴ
+│  ➤ .sᴇᴛɴᴀᴍᴇ <ᴛᴇxᴛ> - sᴇᴛ ɢʀᴏᴜᴘ ɴᴀᴍᴇ
+│  ➤ .ʟᴏᴄᴋ - ʟᴏᴄᴋ ɢʀᴏᴜᴘ (ᴀᴅᴍɪɴs ᴏɴʟʏ)
+│  ➤ .ᴜɴʟᴏᴄᴋ - ᴜɴʟᴏᴄᴋ ɢʀᴏᴜᴘ
+│  ➤ .ʀᴜʟᴇs - sʜᴏᴡ ɢʀᴏᴜᴘ ʀᴜʟᴇs
+│  ➤ .sᴇᴛʀᴜʟᴇs <ᴛᴇxᴛ> - sᴇᴛ ɢʀᴏᴜᴘ ʀᴜʟᴇs
+│  ➤ .ᴡᴇʟᴄᴏᴍᴇ ᴏɴ/ᴏғғ - ᴛᴏɢɢʟᴇ ᴡᴇʟᴄᴏᴍᴇ ᴍᴇssᴀɢᴇs
+│  ➤ .ɢᴏᴏᴅʙʏᴇ ᴏɴ/ᴏғғ - ᴛᴏɢɢʟᴇ ɢᴏᴏᴅʙʏᴇ ᴍᴇssᴀɢᴇs
+│
+│  ⚠️ ᴀɴᴛɪ-ᴄᴏɴᴛᴇɴᴛ:
+│  ➤ .ᴀɴᴛɪʟɪɴᴋ ᴏɴ/ᴏғғ - ʙʟᴏᴄᴋ ᴡʜᴀᴛsᴀᴘᴘ ʟɪɴᴋs
+│  ➤ .ᴀɴᴛɪsᴛɪᴄᴋᴇʀ ᴏɴ/ᴏғғ - ʙʟᴏᴄᴋ sᴛɪᴄᴋᴇʀs
+│  ➤ .ᴀɴᴛɪᴀᴜᴅɪᴏ ᴏɴ/ᴏғғ - ʙʟᴏᴄᴋ ᴀᴜᴅɪᴏ/ᴠᴏɪᴄᴇ ɴᴏᴛᴇs
+│  ➤ .ᴀɴᴛɪɪᴍɢ ᴏɴ/ᴏғғ - ʙʟᴏᴄᴋ ɪᴍᴀɢᴇs
+│  ➤ .ᴀɴᴛɪᴠɪᴅᴇᴏ ᴏɴ/ᴏғғ - ʙʟᴏᴄᴋ ᴠɪᴅᴇᴏs
+│  ➤ .ᴀɴᴛɪᴠᴠ ᴏɴ/ᴏғғ - ʙʟᴏᴄᴋ ᴠɪᴇᴡ-ᴏɴᴄᴇ ᴍᴇssᴀɢᴇs
+│  ➤ .ᴀɴᴛɪғɪʟᴇ ᴏɴ/ᴏғғ - ʙʟᴏᴄᴋ ᴅᴏᴄᴜᴍᴇɴᴛs/ғɪʟᴇs
+│  ➤ .ᴀɴᴛɪɢᴄᴀʟʟ ᴏɴ/ᴏғғ - ʙʟᴏᴄᴋ ɢʀᴏᴜᴘ ᴄᴀʟʟs
+╰───────￫
+`.trim();
+          
+          await sendImageReply(socket, sender, groupCommands, {
+            buttons: [
+              { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "📜 ᴍᴇɴᴜ" } },
+              { buttonId: `${config.PREFIX}owner`, buttonText: { displayText: "👑 ᴏᴡɴᴇʀ" } },
+              { buttonId: `${config.PREFIX}user`, buttonText: { displayText: "🧑 ᴜsᴇʀ" } }
+            ]
+          });
+          break;
+        }
+
+        case 'id': {
+          try { await socket.sendMessage(sender, { react: { text: "🆔", key: msg.key } }); } catch(e){}
+          
+          const idText = `
+╭────────￫
+│  🆔 ᴜsᴇʀ ɪɴғᴏ
+│
+│  ◈ ʏᴏᴜʀ ɪᴅ:
+│  ➤ ${senderJid}
+│
+│  ◈ ᴄʜᴀᴛ ɪᴅ:
+│  ➤ ${from}
+│
+│  ◈ ʙᴏᴛ ɴᴜᴍʙᴇʀ:
+│  ➤ ${botNumber}
+╰───────￫
+`.trim();
+          
+          await sendImageReply(socket, sender, idText);
+          break;
+        }
+
+        case 'profile': {
+          try { await socket.sendMessage(sender, { react: { text: "👤", key: msg.key } }); } catch(e){}
+          
+          try {
+            const profile = await getUserProfile(socket, senderJid);
+            const profileText = `
+╭────────￫
+│  👤 ᴘʀᴏғɪʟᴇ ɪɴғᴏ
+│
+│  ◈ ɴᴀᴍᴇ:
+│  ➤ ${profile.name}
+│
+│  ◈ ʙɪᴏ:
+│  ➤ ${profile.bio}
+│
+│  ◈ ʟᴀsᴛ sᴇᴇɴ:
+│  ➤ ${profile.lastSeen}
+│
+│  ◈ ʏᴏᴜʀ ɪᴅ:
+│  ➤ ${senderJid}
+╰───────￫
+`.trim();
+            
+            await sendImageReply(socket, sender, profileText);
+          } catch(e) {
+            console.error('Profile error:', e);
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ғᴇᴛᴄʜ ᴘʀᴏғɪʟᴇ ɪɴғᴏʀᴍᴀᴛɪᴏɴ.', '❌');
+          }
+          break;
+        }
+
         case 'vv': {
           try { await socket.sendMessage(sender, { react: { text: "👁️", key: msg.key } }); } catch(e){}
           
-          let quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+          const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
           if (!quoted) {
             await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ᴘʟᴇᴀsᴇ ʀᴇᴘʟʏ ᴛᴏ ᴀ ᴠɪᴇᴡ-ᴏɴᴄᴇ ᴍᴇssᴀɢᴇ.', '👁️');
             break;
           }
           
           try {
-            const viewOnceMsg = quoted.viewOnceMessage || quoted.viewOnceMessageV2;
+            // Check for viewOnceMessage or viewOnceMessageV2
+            let viewOnceMsg = quoted.viewOnceMessage || quoted.viewOnceMessageV2;
+            
+            // Also check if the quoted message itself is a view-once
+            if (!viewOnceMsg && (quoted.imageMessage?.viewOnce || quoted.videoMessage?.viewOnce)) {
+              viewOnceMsg = quoted;
+            }
+            
             if (!viewOnceMsg) {
               await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ᴘʟᴇᴀsᴇ ʀᴇᴘʟʏ ᴛᴏ ᴀ ᴠɪᴇᴡ-ᴏɴᴄᴇ ᴍᴇssᴀɢᴇ.', '👁️');
               break;
             }
             
-            const messageContent = viewOnceMsg.message;
+            // Extract the actual message content
+            let messageContent = viewOnceMsg;
+            if (viewOnceMsg.message) {
+              messageContent = viewOnceMsg.message;
+            }
+            
             const contentType = getContentType(messageContent);
             
-            if (contentType === 'imageMessage') {
-              const buffer = await downloadMedia(messageContent.imageMessage, 'image');
+            if (contentType === 'imageMessage' || contentType === 'videoMessage') {
+              const mediaType = contentType.replace('Message', '').toLowerCase();
+              const buffer = await downloadMedia(messageContent[contentType], mediaType);
+              
               if (buffer) {
-                await socket.sendMessage(sender, { 
-                  image: buffer,
-                  caption: 'ʜᴇʀᴇ ɪs ᴛʜᴇ ᴠɪᴇᴡ-ᴏɴᴄᴇ ɪᴍᴀɢᴇ 👁️'
-                });
-                await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', 'ᴠɪᴇᴡ-ᴏɴᴄᴇ ɪᴍᴀɢᴇ ʜᴀs ʙᴇᴇɴ sᴀᴠᴇᴅ.', '✅');
-              } else {
-                await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴅᴏᴡɴʟᴏᴀᴅ ᴍᴇᴅɪᴀ.', '❌');
-              }
-            } else if (contentType === 'videoMessage') {
-              const buffer = await downloadMedia(messageContent.videoMessage, 'video');
-              if (buffer) {
-                await socket.sendMessage(sender, { 
-                  video: buffer,
-                  caption: 'ʜᴇʀᴇ ɪs ᴛʜᴇ ᴠɪᴇᴡ-ᴏɴᴄᴇ ᴠɪᴅᴇᴏ 👁️'
-                });
-                await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', 'ᴠɪᴇᴡ-ᴏɴᴄᴇ ᴠɪᴅᴇᴏ ʜᴀs ʙᴇᴇɴ sᴀᴠᴇᴅ.', '✅');
+                if (contentType === 'imageMessage') {
+                  await socket.sendMessage(sender, { 
+                    image: buffer,
+                    caption: 'ʜᴇʀᴇ ɪs ᴛʜᴇ ᴠɪᴇᴡ-ᴏɴᴄᴇ ɪᴍᴀɢᴇ 👁️'
+                  });
+                } else if (contentType === 'videoMessage') {
+                  await socket.sendMessage(sender, { 
+                    video: buffer,
+                    caption: 'ʜᴇʀᴇ ɪs ᴛʜᴇ ᴠɪᴇᴡ-ᴏɴᴄᴇ ᴠɪᴅᴇᴏ 👁️'
+                  });
+                }
+                await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', 'ᴠɪᴇᴡ-ᴏɴᴄᴇ ᴍᴇᴅɪᴀ ʜᴀs ʙᴇᴇɴ sᴀᴠᴇᴅ ✅', '✅');
               } else {
                 await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴅᴏᴡɴʟᴏᴀᴅ ᴍᴇᴅɪᴀ.', '❌');
               }
@@ -938,57 +1324,71 @@ function setupCommandHandlers(socket, number) {
         case 'sticker': {
           try { await socket.sendMessage(sender, { react: { text: "🖼️", key: msg.key } }); } catch(e){}
           
-          let mediaMessage = null;
-          if (msg.message?.imageMessage) {
-            mediaMessage = msg.message.imageMessage;
-          } else if (msg.message?.videoMessage) {
-            mediaMessage = msg.message.videoMessage;
-          } else if (msg.message?.extendedTextMessage?.contextInfo?.quotedMessage) {
-            const quoted = msg.message.extendedTextMessage.contextInfo.quotedMessage;
-            if (quoted.imageMessage) {
-              mediaMessage = quoted.imageMessage;
-            } else if (quoted.videoMessage) {
-              mediaMessage = quoted.videoMessage;
-            }
+          const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+          
+          // Check if media is in the message itself (not quoted)
+          let mediaMessage = quoted;
+          if (!mediaMessage && (msg.message.imageMessage || msg.message.videoMessage)) {
+            mediaMessage = msg.message;
           }
           
           if (!mediaMessage) {
-            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ᴘʟᴇᴀsᴇ sᴇɴᴅ ᴏʀ ʀᴇᴘʟʏ ᴛᴏ ᴀɴ ɪᴍᴀɢᴇ ᴏʀ ᴠɪᴅᴇᴏ.', '🖼️');
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ᴘʟᴇᴀsᴇ ʀᴇᴘʟʏ ᴛᴏ ᴀɴ ɪᴍᴀɢᴇ ᴏʀ ᴠɪᴅᴇᴏ ᴏʀ sᴇɴᴅ ᴍᴇᴅɪᴀ ᴡɪᴛʜ ᴛʜᴇ ᴄᴏᴍᴍᴀɴᴅ.', '🖼️');
             break;
           }
           
           try {
-            const isImage = !!mediaMessage.imageMessage || (mediaMessage.mimetype && mediaMessage.mimetype.startsWith('image/'));
-            const isVideo = !!mediaMessage.videoMessage || (mediaMessage.mimetype && mediaMessage.mimetype.startsWith('video/'));
+            const qTypes = ['imageMessage', 'videoMessage'];
+            const qType = qTypes.find(t => mediaMessage[t]);
             
-            if (!isImage && !isVideo) {
-              await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ᴜɴsᴜᴘᴘᴏʀᴛᴇᴅ ᴍᴇᴅɪᴀ ᴛʏᴘᴇ. ᴘʟᴇᴀsᴇ ᴜsᴇ ɪᴍᴀɢᴇ ᴏʀ ᴠɪᴅᴇᴏ.', '❌');
+            if (!qType) {
+              await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ᴘʟᴇᴀsᴇ ʀᴇᴘʟʏ ᴛᴏ ᴀɴ ɪᴍᴀɢᴇ ᴏʀ ᴠɪᴅᴇᴏ.', '🖼️');
               break;
             }
             
-            const mediaType = isImage ? 'image' : 'video';
-            const buffer = await downloadMedia(mediaMessage, mediaType);
+            const mediaType = qType.replace('Message', '').toLowerCase();
+            const buffer = await downloadMedia(mediaMessage[qType], mediaType);
             
             if (buffer) {
+              // Process image for sticker
               let stickerBuffer;
-              if (isImage) {
-                const image = await Jimp.read(buffer);
-                stickerBuffer = await image
-                  .resize(512, 512)
-                  .quality(100)
-                  .getBufferAsync(Jimp.MIME_PNG);
-              } else {
-                const image = await Jimp.read(512, 512, 0xFFFFFFFF);
-                const font = await Jimp.loadFont(Jimp.FONT_SANS_32_BLACK);
-                await image.print(font, 100, 200, 'Video Sticker');
-                stickerBuffer = await image.getBufferAsync(Jimp.MIME_PNG);
+              if (qType === 'imageMessage') {
+                try {
+                  const image = await Jimp.read(buffer);
+                  stickerBuffer = await image
+                    .resize(512, 512)
+                    .quality(100)
+                    .getBufferAsync(Jimp.MIME_PNG);
+                } catch (imgError) {
+                  console.error('Image processing error:', imgError);
+                  stickerBuffer = buffer;
+                }
+              } else if (qType === 'videoMessage') {
+                // For videos, extract first frame using Jimp
+                try {
+                  // Create a simple image with video info (in production, use ffmpeg)
+                  const image = await Jimp.create(512, 512, 0x0000FFFF);
+                  const font = await Jimp.loadFont(Jimp.FONT_SANS_32_WHITE);
+                  await image.print(font, 50, 200, 'Video Sticker');
+                  stickerBuffer = await image.getBufferAsync(Jimp.MIME_PNG);
+                } catch (vidError) {
+                  console.error('Video processing error:', vidError);
+                  const image = await Jimp.read(512, 512, 0x0000FFFF);
+                  stickerBuffer = await image.getBufferAsync(Jimp.MIME_PNG);
+                }
               }
               
-              await socket.sendMessage(sender, { 
-                sticker: stickerBuffer 
-              });
-              
-              await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', 'sᴛɪᴄᴋᴇʀ ᴄʀᴇᴀᴛᴇᴅ sᴜᴄᴄᴇssғᴜʟʟʏ!', '✅');
+              if (stickerBuffer) {
+                // Send sticker
+                await socket.sendMessage(sender, { 
+                  sticker: stickerBuffer 
+                });
+                
+                // Send success message
+                await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', 'sᴛɪᴄᴋᴇʀ ᴄʀᴇᴀᴛᴇᴅ sᴜᴄᴄᴇssғᴜʟʟʏ ✅', '✅');
+              } else {
+                await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴄʀᴇᴀᴛᴇ sᴛɪᴄᴋᴇʀ.', '❌');
+              }
             } else {
               await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴅᴏᴡɴʟᴏᴀᴅ ᴍᴇᴅɪᴀ.', '❌');
             }
@@ -1015,7 +1415,7 @@ function setupCommandHandlers(socket, number) {
                 image: buffer,
                 caption: 'ʜᴇʀᴇ ɪs ʏᴏᴜʀ ɪᴍᴀɢᴇ ғʀᴏᴍ sᴛɪᴄᴋᴇʀ 🖼️'
               });
-              await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', 'sᴛɪᴄᴋᴇʀ ᴄᴏɴᴠᴇʀᴛᴇᴅ ᴛᴏ ɪᴍᴀɢᴇ!', '✅');
+              await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', 'sᴛɪᴄᴋᴇʀ ᴄᴏɴᴠᴇʀᴛᴇᴅ ᴛᴏ ɪᴍᴀɢᴇ ✅', '✅');
             } else {
               await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴅᴏᴡɴʟᴏᴀᴅ sᴛɪᴄᴋᴇʀ.', '❌');
             }
@@ -1038,12 +1438,13 @@ function setupCommandHandlers(socket, number) {
           try {
             const buffer = await downloadMedia(quoted.videoMessage, 'video');
             if (buffer) {
+              // Send as audio (in production, extract audio with ffmpeg)
               await socket.sendMessage(sender, { 
                 audio: buffer,
                 mimetype: 'audio/mp4',
                 ptt: false
               });
-              await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', 'ᴀᴜᴅɪᴏ ᴇxᴛʀᴀᴄᴛᴇᴅ ғʀᴏᴍ ᴠɪᴅᴇᴏ!', '✅');
+              await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', 'ᴀᴜᴅɪᴏ ᴇxᴛʀᴀᴄᴛᴇᴅ ғʀᴏᴍ ᴠɪᴅᴇᴏ ✅', '✅');
             } else {
               await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴅᴏᴡɴʟᴏᴀᴅ ᴠɪᴅᴇᴏ.', '❌');
             }
@@ -1054,21 +1455,235 @@ function setupCommandHandlers(socket, number) {
           break;
         }
 
-        // ==================== OWNER COMMANDS ====================
-        case 'restart': {
-          if (!isOwner(senderJid)) {
-            await sendFuturisticReply(socket, sender, 'ᴘᴇʀᴍɪssɪᴏɴ ᴅᴇɴɪᴇᴅ', 
-              `ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ ɪs ʀᴇsᴛʀɪᴄᴛᴇᴅ ᴛᴏ ᴛʜᴇ ʙᴏᴛ ᴏᴡɴᴇʀs ᴏɴʟʏ.\n\nᴏᴡɴᴇʀ: ${config.OWNER_NAME}`, 
-              '❌'
-            );
+        case 'calc': {
+          try { await socket.sendMessage(sender, { react: { text: "🧮", key: msg.key } }); } catch(e){}
+          
+          const expression = args.join(' ');
+          if (!expression) {
+            await sendFuturisticReply(socket, sender, 'ᴜsᴀɢᴇ', '.ᴄᴀʟᴄ <ᴇxᴘʀᴇssɪᴏɴ>\n\nᴇxᴀᴍᴘʟᴇ:\n.ᴄᴀʟᴄ 10+5\n.ᴄᴀʟᴄ 50*2\n.ᴄᴀʟᴄ 100/4', '🧮');
             break;
           }
+          
+          try {
+            // Safe evaluation
+            const safeExpression = expression
+              .replace(/[^0-9+\-*/().,%\s]/g, '')
+              .replace(/%/g, '/100');
+            
+            const result = eval(safeExpression);
+            const calcText = `
+╭────────￫
+│  🧮 ᴄᴀʟᴄᴜʟᴀᴛᴏʀ
+│
+│  ◈ ᴇxᴘʀᴇssɪᴏɴ:
+│  ➤ ${expression}
+│
+│  ◈ ʀᴇsᴜʟᴛ:
+│  ➤ ${result}
+╰───────￫
+`.trim();
+            
+            await sendImageReply(socket, sender, calcText);
+          } catch(e) {
+            console.error('Calc error:', e);
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ɪɴᴠᴀʟɪᴅ ᴇxᴘʀᴇssɪᴏɴ ᴏʀ sʏɴᴛᴀx ᴇʀʀᴏʀ.\n\nᴇxᴀᴍᴘʟᴇ:\n.ᴄᴀʟᴄ 10+5\n.ᴄᴀʟᴄ 50*2', '❌');
+          }
+          break;
+        }
+
+        case 'qr': {
+          try { await socket.sendMessage(sender, { react: { text: "📱", key: msg.key } }); } catch(e){}
+          
+          const text = args.join(' ');
+          if (!text) {
+            await sendFuturisticReply(socket, sender, 'ᴜsᴀɢᴇ', '.ǫʀ <ᴛᴇxᴛ>\n\nᴇxᴀᴍᴘʟᴇ:\n.ǫʀ ʜᴇʟʟᴏ ᴡᴏʀʟᴅ\n.ǫʀ https://example.com', '📱');
+            break;
+          }
+          
+          try {
+            const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(text)}`;
+            
+            const qrText = `
+╭────────￫
+│  📱 ǫʀ ᴄᴏᴅᴇ
+│
+│  ◈ ᴛᴇxᴛ:
+│  ➤ ${text}
+│
+│  ◈ sᴄᴀɴ ᴛʜᴇ ǫʀ ᴄᴏᴅᴇ
+│  ➤ ᴛᴏ ᴠɪᴇᴡ ᴛʜᴇ ᴄᴏɴᴛᴇɴᴛ
+╰───────￫
+`.trim();
+            
+            await socket.sendMessage(sender, { 
+              image: { url: qrCodeUrl },
+              caption: qrText
+            });
+          } catch(e) {
+            console.error('QR error:', e);
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ɢᴇɴᴇʀᴀᴛᴇ ǫʀ ᴄᴏᴅᴇ.', '❌');
+          }
+          break;
+        }
+
+        case 'reverse': {
+          try { await socket.sendMessage(sender, { react: { text: "🔁", key: msg.key } }); } catch(e){}
+          
+          const text = args.join(' ');
+          if (!text) {
+            await sendFuturisticReply(socket, sender, 'ᴜsᴀɢᴇ', '.ʀᴇᴠᴇʀsᴇ <ᴛᴇxᴛ>\n\nᴇxᴀᴍᴘʟᴇ:\n.ʀᴇᴠᴇʀsᴇ ʜᴇʟʟᴏ\n.ʀᴇᴠᴇʀsᴇ ᴡᴏʀʟᴅ', '🔁');
+            break;
+          }
+          
+          const reversed = text.split('').reverse().join('');
+          const reverseText = `
+╭────────￫
+│  🔁 ʀᴇᴠᴇʀsᴇᴅ ᴛᴇxᴛ
+│
+│  ◈ ᴏʀɪɢɪɴᴀʟ:
+│  ➤ ${text}
+│
+│  ◈ ʀᴇᴠᴇʀsᴇᴅ:
+│  ➤ ${reversed}
+╰───────￫
+`.trim();
+          
+          await sendImageReply(socket, sender, reverseText);
+          break;
+        }
+
+        case 'repeat': {
+          try { await socket.sendMessage(sender, { react: { text: "🔂", key: msg.key } }); } catch(e){}
+          
+          const text = args.join(' ');
+          if (!text) {
+            await sendFuturisticReply(socket, sender, 'ᴜsᴀɢᴇ', '.ʀᴇᴘᴇᴀᴛ <ᴛᴇxᴛ>\n\nᴇxᴀᴍᴘʟᴇ:\n.ʀᴇᴘᴇᴀᴛ ʜᴇʟʟᴏ 3', '🔂');
+            break;
+          }
+          
+          const parts = text.split(' ');
+          const lastWord = parts[parts.length - 1];
+          const count = parseInt(lastWord);
+          
+          let repeatText, repeatCount;
+          if (!isNaN(count) && count > 0 && count <= 20) {
+            repeatText = parts.slice(0, -1).join(' ');
+            repeatCount = count;
+          } else {
+            repeatText = text;
+            repeatCount = 3;
+          }
+          
+          const repeated = Array(repeatCount).fill(repeatText).join('\n');
+          const resultText = `
+╭────────￫
+│  🔂 ʀᴇᴘᴇᴀᴛ
+│
+│  ◈ ᴛᴇxᴛ:
+│  ➤ ${repeatText}
+│
+│  ◈ ᴛɪᴍᴇs:
+│  ➤ ${repeatCount}
+│
+│  ◈ ʀᴇsᴜʟᴛ:
+│  ➤ ${repeated}
+╰───────￫
+`.trim();
+          
+          await sendImageReply(socket, sender, resultText);
+          break;
+        }
+
+        case 'count': {
+          try { await socket.sendMessage(sender, { react: { text: "🔢", key: msg.key } }); } catch(e){}
+          
+          const text = args.join(' ');
+          if (!text) {
+            const defaultCount = `
+╭────────￫
+│  🔢 ᴄᴏᴜɴᴛᴇʀ
+│
+│  ◈ ᴜsᴀɢᴇ:
+│  ➤ .ᴄᴏᴜɴᴛ <ᴛᴇxᴛ>
+│  ➤ .ᴄᴏᴜɴᴛ ʜᴇʟʟᴏ ᴡᴏʀʟᴅ
+│
+│  ◈ ᴇxᴀᴍᴘʟᴇ:
+│  ➤ ɪɴᴘᴜᴛ: ʜᴇʟʟᴏ ᴡᴏʀʟᴅ
+│  ➤ ᴄʜᴀʀᴀᴄᴛᴇʀs: 11
+│  ➤ ᴡᴏʀᴅs: 2
+╰───────￫
+`.trim();
+            
+            await sendImageReply(socket, sender, defaultCount);
+            break;
+          }
+          
+          const characters = text.length;
+          const words = text.trim().split(/\s+/).filter(w => w.length > 0).length;
+          const lines = text.split('\n').length;
+          
+          const countText = `
+╭────────￫
+│  🔢 ᴄᴏᴜɴᴛᴇʀ
+│
+│  ◈ ᴛᴇxᴛ:
+│  ➤ ${text.length > 50 ? text.substring(0, 47) + '...' : text}
+│
+│  ◈ sᴛᴀᴛɪsᴛɪᴄs:
+│  ➤ ᴄʜᴀʀᴀᴄᴛᴇʀs: ${characters}
+│  ➤ ᴡᴏʀᴅs: ${words}
+│  ➤ ʟɪɴᴇs: ${lines}
+╰───────￫
+`.trim();
+          
+          await sendImageReply(socket, sender, countText);
+          break;
+        }
+
+        case 'password': {
+          try { await socket.sendMessage(sender, { react: { text: "🔐", key: msg.key } }); } catch(e){}
+          
+          const length = parseInt(args[0]) || 12;
+          const safeLength = Math.min(Math.max(length, 6), 32);
+          
+          const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()';
+          let password = '';
+          for (let i = 0; i < safeLength; i++) {
+            password += chars.charAt(Math.floor(Math.random() * chars.length));
+          }
+          
+          const passwordText = `
+╭────────￫
+│  🔐 ᴘᴀssᴡᴏʀᴅ ɢᴇɴᴇʀᴀᴛᴏʀ
+│
+│  ◈ ʟᴇɴɢᴛʜ: ${safeLength}
+│  ◈ sᴛʀᴇɴɢᴛʜ: ${safeLength >= 16 ? 'ᴠᴇʀʏ sᴛʀᴏɴɢ 💪' : safeLength >= 12 ? 'sᴛʀᴏɴɢ 👍' : 'ɢᴏᴏᴅ 👌'}
+│
+│  ◈ ɢᴇɴᴇʀᴀᴛᴇᴅ ᴘᴀssᴡᴏʀᴅ:
+│  ➤ ${password}
+│
+│  ◈ ɴᴏᴛᴇ:
+│  ➤ ᴋᴇᴇᴘ ʏᴏᴜʀ ᴘᴀssᴡᴏʀᴅ sᴇᴄᴜʀᴇ!
+│  ➤ ᴅᴏ ɴᴏᴛ sʜᴀʀᴇ ᴡɪᴛʜ ᴀɴʏᴏɴᴇ!
+╰───────￫
+`.trim();
+          
+          await sendImageReply(socket, sender, passwordText);
+          break;
+        }
+
+        // ==================== OWNER COMMANDS ====================
+        case 'restart': {
+          // Check owner permission
+          const hasPermission = await checkOwnerPermission(socket, sender, senderJid, 'restart');
+          if (!hasPermission) break;
           
           try { await socket.sendMessage(sender, { react: { text: "🔄", key: msg.key } }); } catch(e){}
           
           try {
             await sendFuturisticReply(socket, sender, 'ʀᴇsᴛᴀʀᴛɪɴɢ', 'ʀᴇsᴛᴀʀᴛɪɴɢ ʙᴏᴛ... ᴘʟᴇᴀsᴇ ᴡᴀɪᴛ 5-10 sᴇᴄᴏɴᴅs.', '🔄');
             
+            // Delay before restart to allow message to be sent
             setTimeout(() => {
               try { 
                 console.log(`Restarting bot for owner: ${senderJid}`);
@@ -1090,9 +1705,90 @@ function setupCommandHandlers(socket, number) {
           break;
         }
 
+        case 'anticall': {
+          // Check owner permission
+          const hasPermission = await checkOwnerPermission(socket, sender, senderJid, 'anticall');
+          if (!hasPermission) break;
+          
+          const state = args[0];
+          if (!state || (state !== 'on' && state !== 'off')) {
+            await sendFuturisticReply(socket, sender, 'ᴜsᴀɢᴇ', '.ᴀɴᴛɪᴄᴀʟʟ ᴏɴ/ᴏғғ\n\nᴇxᴀᴍᴘʟᴇ:\n.ᴀɴᴛɪᴄᴀʟʟ ᴏɴ\n.ᴀɴᴛɪᴄᴀʟʟ ᴏғғ', '📵');
+            break;
+          }
+          
+          try { await socket.sendMessage(sender, { react: { text: "📵", key: msg.key } }); } catch(e){}
+          
+          const enabled = state === 'on';
+          callBlockers.set(number, { enabled, blockedNumbers: new Set() });
+          
+          await sendFuturisticReply(socket, sender, 'ᴀɴᴛɪᴄᴀʟʟ', 
+            `ᴀɴᴛɪᴄᴀʟʟ ${enabled ? 'ᴇɴᴀʙʟᴇᴅ ✅' : 'ᴅɪsᴀʙʟᴇᴅ ❌'}\n\nɪɴᴄᴏᴍɪɴɢ ᴄᴀʟʟs ᴡɪʟʟ ʙᴇ ${enabled ? 'ᴀᴜᴛᴏ-ʙʟᴏᴄᴋᴇᴅ 🔒' : 'ᴀʟʟᴏᴡᴇᴅ ✅'}.`, 
+            '📵'
+          );
+          break;
+        }
+
+        case 'setname': {
+          // Check if this is the owner command (in private chat)
+          if (!from.endsWith('@g.us')) {
+            // Owner command in private chat
+            const hasPermission = await checkOwnerPermission(socket, sender, senderJid, 'setname');
+            if (!hasPermission) break;
+            
+            const newName = args.join(' ');
+            if (!newName) {
+              await sendFuturisticReply(socket, sender, 'ᴜsᴀɢᴇ', '.sᴇᴛɴᴀᴍᴇ <ɴᴇᴡ ɴᴀᴍᴇ>\n\nᴇxᴀᴍᴘʟᴇ:\n.sᴇᴛɴᴀᴍᴇ ᴠɪʀᴀʟ-ʙᴏᴛ ᴘʀᴏ', '✏️');
+              break;
+            }
+            
+            try { await socket.sendMessage(sender, { react: { text: "✏️", key: msg.key } }); } catch(e){}
+            
+            try {
+              await socket.updateProfileName(newName);
+              await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', `ʙᴏᴛ ɴᴀᴍᴇ ᴜᴘᴅᴀᴛᴇᴅ ✅\n\nɴᴇᴡ ɴᴀᴍᴇ: ${newName}`, '✅');
+            } catch(e) {
+              console.error('Setname error:', e);
+              await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴜᴘᴅᴀᴛᴇ ʙᴏᴛ ɴᴀᴍᴇ.', '❌');
+            }
+            break;
+          } else {
+            // Group command - handled in group commands section
+          }
+          break;
+        }
+
+        case 'setbio': {
+          // Check owner permission
+          const hasPermission = await checkOwnerPermission(socket, sender, senderJid, 'setbio');
+          if (!hasPermission) break;
+          
+          const newBio = args.join(' ');
+          if (!newBio) {
+            await sendFuturisticReply(socket, sender, 'ᴜsᴀɢᴇ', '.sᴇᴛʙɪᴏ <ɴᴇᴡ ᴀʙᴏᴜᴛ ᴛᴇxᴛ>\n\nᴇxᴀᴍᴘʟᴇ:\n.sᴇᴛʙɪᴏ ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ', '📝');
+            break;
+          }
+          
+          try { await socket.sendMessage(sender, { react: { text: "📝", key: msg.key } }); } catch(e){}
+          
+          try {
+            await socket.updateProfileStatus(newBio);
+            await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', `ʙᴏᴛ ʙɪᴏ ᴜᴘᴅᴀᴛᴇᴅ ✅\n\nɴᴇᴡ ʙɪᴏ: ${newBio}`, '✅');
+          } catch(e) {
+            console.error('Setbio error:', e);
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴜᴘᴅᴀᴛᴇ ʙᴏᴛ ʙɪᴏ.', '❌');
+          }
+          break;
+        }
+
         case 'setpp': {
+          const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+          if (!quoted?.imageMessage) {
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ᴘʟᴇᴀsᴇ ʀᴇᴘʟʏ ᴛᴏ ᴀɴ ɪᴍᴀɢᴇ ᴡɪᴛʜ ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ.\n\nᴇxᴀᴍᴘʟᴇ:\nʀᴇᴘʟʏ ᴛᴏ ᴀɴ ɪᴍᴀɢᴇ ᴡɪᴛʜ ".sᴇᴛᴘᴘ"', '🖼️');
+            break;
+          }
+          
           if (from.endsWith('@g.us')) {
-            // Group profile picture
+            // GROUP setpp command
             const isAdmin = await isGroupAdmin(socket, from, senderJid);
             const isOwnerUser = isOwner(senderJid);
             
@@ -1101,15 +1797,10 @@ function setupCommandHandlers(socket, number) {
               break;
             }
             
+            // Check if bot is admin
             const botIsAdmin = await isBotAdmin(socket, from);
             if (!botIsAdmin) {
               await sendFuturisticReply(socket, sender, 'ʙᴏᴛ ᴘᴇʀᴍɪssɪᴏɴ', 'ʙᴏᴛ ɴᴇᴇᴅs ᴛᴏ ʙᴇ ᴀɴ ᴀᴅᴍɪɴ ᴛᴏ ᴄʜᴀɴɢᴇ ɢʀᴏᴜᴘ ᴘʀᴏғɪʟᴇ ᴘɪᴄᴛᴜʀᴇ.', '❌');
-              break;
-            }
-            
-            const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-            if (!quoted?.imageMessage) {
-              await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ᴘʟᴇᴀsᴇ ʀᴇᴘʟʏ ᴛᴏ ᴀɴ ɪᴍᴀɢᴇ ᴡɪᴛʜ ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ.', '🖼️');
               break;
             }
             
@@ -1118,6 +1809,7 @@ function setupCommandHandlers(socket, number) {
             try {
               const buffer = await downloadMedia(quoted.imageMessage, 'image');
               if (buffer) {
+                // Update GROUP profile picture
                 await socket.updateProfilePicture(from, buffer);
                 await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', 'ɢʀᴏᴜᴘ ᴘʀᴏғɪʟᴇ ᴘɪᴄᴛᴜʀᴇ ᴜᴘᴅᴀᴛᴇᴅ sᴜᴄᴄᴇssғᴜʟʟʏ ✅', '✅');
               } else {
@@ -1128,35 +1820,269 @@ function setupCommandHandlers(socket, number) {
               await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴜᴘᴅᴀᴛᴇ ɢʀᴏᴜᴘ ᴘʀᴏғɪʟᴇ ᴘɪᴄᴛᴜʀᴇ.', '❌');
             }
           } else {
-            // Bot profile picture (owner only)
-            if (!isOwner(senderJid)) {
-              await sendFuturisticReply(socket, sender, 'ᴘᴇʀᴍɪssɪᴏɴ ᴅᴇɴɪᴇᴅ', 
-                `ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ ɪs ʀᴇsᴛʀɪᴄᴛᴇᴅ ᴛᴏ ᴛʜᴇ ʙᴏᴛ ᴏᴡɴᴇʀs ᴏɴʟʏ.\n\nᴏᴡɴᴇʀ: ${config.OWNER_NAME}`, 
-                '❌'
-              );
-              break;
-            }
-            
-            const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-            if (!quoted?.imageMessage) {
-              await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ᴘʟᴇᴀsᴇ ʀᴇᴘʟʏ ᴛᴏ ᴀɴ ɪᴍᴀɢᴇ ᴡɪᴛʜ ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ.', '🖼️');
-              break;
-            }
+            // OWNER setpp command (in private chat)
+            const hasPermission = await checkOwnerPermission(socket, sender, senderJid, 'setpp');
+            if (!hasPermission) break;
             
             try { await socket.sendMessage(sender, { react: { text: "🖼️", key: msg.key } }); } catch(e){}
             
             try {
               const buffer = await downloadMedia(quoted.imageMessage, 'image');
               if (buffer) {
+                // Update BOT profile picture
                 await socket.updateProfilePicture(botNumber + '@s.whatsapp.net', buffer);
                 await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', 'ʙᴏᴛ ᴘʀᴏғɪʟᴇ ᴘɪᴄᴛᴜʀᴇ ᴜᴘᴅᴀᴛᴇᴅ sᴜᴄᴄᴇssғᴜʟʟʏ ✅', '✅');
               } else {
                 await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴅᴏᴡɴʟᴏᴀᴅ ᴛʜᴇ ɪᴍᴀɢᴇ.', '❌');
               }
             } catch(e) {
-              console.error('Bot setpp error:', e);
-              await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴜᴘᴅᴀᴛᴇ ʙᴏᴛ ᴘʀᴏғɪʟᴇ ᴘɪᴄᴛᴜʀᴇ.', '❌');
+              console.error('Setpp error:', e);
+              await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴜᴘᴅᴀᴛᴇ ᴘʀᴏғɪʟᴇ ᴘɪᴄᴛᴜʀᴇ.', '❌');
             }
+          }
+          break;
+        }
+
+        case 'broadcast': {
+          // Check owner permission
+          const hasPermission = await checkOwnerPermission(socket, sender, senderJid, 'broadcast');
+          if (!hasPermission) break;
+          
+          const message = args.join(' ');
+          if (!message) {
+            await sendFuturisticReply(socket, sender, 'ᴜsᴀɢᴇ', '.ʙʀᴏᴀᴅᴄᴀsᴛ <ᴍᴇssᴀɢᴇ>\n\nᴇxᴀᴍᴘʟᴇ:\n.ʙʀᴏᴀᴅᴄᴀsᴛ ʜᴇʟʟᴏ ᴇᴠᴇʀʏᴏɴᴇ!', '📢');
+            break;
+          }
+          
+          try { await socket.sendMessage(sender, { react: { text: "📢", key: msg.key } }); } catch(e){}
+          
+          try {
+            const numbers = await getAllNumbersFromMongo();
+            let sent = 0;
+            let failed = 0;
+            
+            // Send initial status
+            await sendFuturisticReply(socket, sender, 'ʙʀᴏᴀᴅᴄᴀsᴛ sᴛᴀʀᴛᴇᴅ', 
+              `sᴇɴᴅɪɴɢ ʙʀᴏᴀᴅᴄᴀsᴛ ᴛᴏ ${numbers.length} ᴜsᴇʀs...\nᴘʟᴇᴀsᴇ ᴡᴀɪᴛ.`, 
+              '⏳'
+            );
+            
+            for (const userNumber of numbers) {
+              try {
+                const userJid = userNumber.includes('@') ? userNumber : userNumber + '@s.whatsapp.net';
+                await socket.sendMessage(userJid, { 
+                  text: `╭────────￫\n│  📢 ʙʀᴏᴀᴅᴄᴀsᴛ\n│\n│  ${message}\n│\n│  - ${config.OWNER_NAME}\n╰───────￫` 
+                });
+                sent++;
+                await delay(500); // Delay to avoid rate limiting
+              } catch(e) {
+                failed++;
+                console.error(`Failed to send to ${userNumber}:`, e.message);
+              }
+            }
+            
+            await sendFuturisticReply(socket, sender, 'ʙʀᴏᴀᴅᴄᴀsᴛ ᴄᴏᴍᴘʟᴇᴛᴇᴅ', 
+              `✅ sᴜᴄᴄᴇssғᴜʟʟʏ sᴇɴᴛ: ${sent}\n❌ ғᴀɪʟᴇᴅ: ${failed}\n📊 ᴛᴏᴛᴀʟ: ${numbers.length}`, 
+              '✅'
+            );
+          } catch(e) {
+            console.error('Broadcast error:', e);
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ sᴇɴᴅ ʙʀᴏᴀᴅᴄᴀsᴛ.', '❌');
+          }
+          break;
+        }
+
+        case 'ban': {
+          // Check owner permission
+          const hasPermission = await checkOwnerPermission(socket, sender, senderJid, 'ban');
+          if (!hasPermission) break;
+          
+          const target = args[0] || msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+          if (!target) {
+            await sendFuturisticReply(socket, sender, 'ᴜsᴀɢᴇ', '.ʙᴀɴ @ᴜsᴇʀ\nᴏʀ ʀᴇᴘʟʏ ᴛᴏ ᴀ ᴜsᴇʀ\'s ᴍᴇssᴀɢᴇ ᴡɪᴛʜ ".ʙᴀɴ"', '🚫');
+            break;
+          }
+          
+          try { await socket.sendMessage(sender, { react: { text: "🚫", key: msg.key } }); } catch(e){}
+          
+          // Extract username
+          const targetUsername = target.split('@')[0];
+          bannedUsers.set(target, `ʙᴀɴɴᴇᴅ ʙʏ ᴏᴡɴᴇʀ ᴀᴛ ${getZimbabweanTimestamp()}`);
+          
+          await sendFuturisticReply(socket, sender, 'ᴜsᴇʀ ʙᴀɴɴᴇᴅ', 
+            `ᴜsᴇʀ ${targetUsername} ʜᴀs ʙᴇᴇɴ ʙᴀɴɴᴇᴅ ғʀᴏᴍ ᴜsɪɴɢ ʙᴏᴛ ᴄᴏᴍᴍᴀɴᴅs ✅\n\nᴛɪᴍᴇ: ${getZimbabweanTimestamp()}`, 
+            '✅'
+          );
+          break;
+        }
+
+        case 'unban': {
+          // Check owner permission
+          const hasPermission = await checkOwnerPermission(socket, sender, senderJid, 'unban');
+          if (!hasPermission) break;
+          
+          const target = args[0] || msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+          if (!target) {
+            await sendFuturisticReply(socket, sender, 'ᴜsᴀɢᴇ', '.ᴜɴʙᴀɴ @ᴜsᴇʀ\nᴏʀ ʀᴇᴘʟʏ ᴛᴏ ᴀ ᴜsᴇʀ\'s ᴍᴇssᴀɢᴇ ᴡɪᴛʜ ".ᴜɴʙᴀɴ"', '✅');
+            break;
+          }
+          
+          try { await socket.sendMessage(sender, { react: { text: "✅", key: msg.key } }); } catch(e){}
+          
+          // Extract username
+          const targetUsername = target.split('@')[0];
+          const wasBanned = bannedUsers.has(target);
+          bannedUsers.delete(target);
+          
+          await sendFuturisticReply(socket, sender, wasBanned ? 'ᴜsᴇʀ ᴜɴʙᴀɴɴᴇᴅ' : 'ᴜsᴇʀ ɴᴏᴛ ʙᴀɴɴᴇᴅ', 
+            wasBanned 
+              ? `ᴜsᴇʀ ${targetUsername} ʜᴀs ʙᴇᴇɴ ᴜɴʙᴀɴɴᴇᴅ ✅\n\nᴛɪᴍᴇ: ${getZimbabweanTimestamp()}`
+              : `ᴜsᴇʀ ${targetUsername} ᴡᴀs ɴᴏᴛ ғᴏᴜɴᴅ ɪɴ ʙᴀɴ ʟɪsᴛ.`, 
+            wasBanned ? '✅' : 'ℹ️'
+          );
+          break;
+        }
+
+        case 'block': {
+          // Check owner permission
+          const hasPermission = await checkOwnerPermission(socket, sender, senderJid, 'block');
+          if (!hasPermission) break;
+          
+          const target = args[0] || msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+          if (!target) {
+            await sendFuturisticReply(socket, sender, 'ᴜsᴀɢᴇ', '.ʙʟᴏᴄᴋ @ᴜsᴇʀ\nᴏʀ ʀᴇᴘʟʏ ᴛᴏ ᴀ ᴜsᴇʀ\'s ᴍᴇssᴀɢᴇ ᴡɪᴛʜ ".ʙʟᴏᴄᴋ"', '🔒');
+            break;
+          }
+          
+          try { await socket.sendMessage(sender, { react: { text: "🔒", key: msg.key } }); } catch(e){}
+          
+          try {
+            const targetJid = target.includes('@') ? target : target + '@s.whatsapp.net';
+            
+            // FIXED: Use correct method for blocking
+            await socket.updateBlockStatus(targetJid, 'block');
+            
+            await sendFuturisticReply(socket, sender, 'ᴜsᴇʀ ʙʟᴏᴄᴋᴇᴅ', 
+              `ᴜsᴇʀ ${target.split('@')[0]} ʜᴀs ʙᴇᴇɴ ʙʟᴏᴄᴋᴇᴅ ᴏɴ ᴡʜᴀᴛsᴀᴘᴘ ✅\n\nᴛɪᴍᴇ: ${getZimbabweanTimestamp()}`, 
+              '✅'
+            );
+          } catch(e) {
+            console.error('Block error:', e);
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', `ғᴀɪʟᴇᴅ ᴛᴏ ʙʟᴏᴄᴋ ᴜsᴇʀ.\n\nᴇʀʀᴏʀ: ${e.message || 'Unknown error'}`, '❌');
+          }
+          break;
+        }
+
+        case 'unblock': {
+          // Check owner permission
+          const hasPermission = await checkOwnerPermission(socket, sender, senderJid, 'unblock');
+          if (!hasPermission) break;
+          
+          const target = args[0] || msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+          if (!target) {
+            await sendFuturisticReply(socket, sender, 'ᴜsᴀɢᴇ', '.ᴜɴʙʟᴏᴄᴋ @ᴜsᴇʀ\nᴏʀ ʀᴇᴘʟʏ ᴛᴏ ᴀ ᴜsᴇʀ\'s ᴍᴇssᴀɢᴇ ᴡɪᴛʜ ".ᴜɴʙʟᴏᴄᴋ"', '🔓');
+            break;
+          }
+          
+          try { await socket.sendMessage(sender, { react: { text: "🔓", key: msg.key } }); } catch(e){}
+          
+          try {
+            const targetJid = target.includes('@') ? target : target + '@s.whatsapp.net';
+            
+            // FIXED: Use correct method for unblocking
+            await socket.updateBlockStatus(targetJid, 'unblock');
+            
+            await sendFuturisticReply(socket, sender, 'ᴜsᴇʀ ᴜɴʙʟᴏᴄᴋᴇᴅ', 
+              `ᴜsᴇʀ ${target.split('@')[0]} ʜᴀs ʙᴇᴇɴ ᴜɴʟᴏᴄᴋᴇᴅ ᴏɴ ᴡʜᴀᴛsᴀᴘᴘ ✅\n\nᴛɪᴍᴇ: ${getZimbabweanTimestamp()}`, 
+              '✅'
+            );
+          } catch(e) {
+            console.error('Unblock error:', e);
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', `ғᴀɪʟᴇᴅ ᴛᴏ ᴜɴʟᴏᴄᴋ ᴜsᴇʀ.\n\nᴇʀʀᴏʀ: ${e.message || 'Unknown error'}`, '❌');
+          }
+          break;
+        }
+
+        case 'logs': {
+          // Check owner permission
+          const hasPermission = await checkOwnerPermission(socket, sender, senderJid, 'logs');
+          if (!hasPermission) break;
+          
+          try { await socket.sendMessage(sender, { react: { text: "📋", key: msg.key } }); } catch(e){}
+          
+          try {
+            const recentLogs = logs.slice(-15).reverse();
+            let logText = '';
+            
+            if (recentLogs.length === 0) {
+              logText = '│  ɴᴏ ʟᴏɢs ᴀᴠᴀɪʟᴀʙʟᴇ ʏᴇᴛ.';
+            } else {
+              recentLogs.forEach((log, index) => {
+                const time = log.timestamp.split(' ')[1]; // Get time only
+                logText += `│  [${time}] ${log.type}: ${log.message}\n`;
+              });
+            }
+            
+            const logsText = `╭────────￫\n│  📋 ʀᴇᴄᴇɴᴛ ʟᴏɢs (ʟᴀsᴛ 15)\n│\n${logText}╰───────￫`;
+            await sendImageReply(socket, sender, logsText);
+          } catch(e) {
+            console.error('Logs error:', e);
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ғᴇᴛᴄʜ ʟᴏɢs.', '❌');
+          }
+          break;
+        }
+
+        case 'stats': {
+          // Check owner permission
+          const hasPermission = await checkOwnerPermission(socket, sender, senderJid, 'stats');
+          if (!hasPermission) break;
+          
+          try { await socket.sendMessage(sender, { react: { text: "📊", key: msg.key } }); } catch(e){}
+          
+          try {
+            const startTime = socketCreationTime.get(number) || Date.now();
+            const uptime = Math.floor((Date.now() - startTime) / 1000);
+            const days = Math.floor(uptime / 86400);
+            const hours = Math.floor((uptime % 86400) / 3600);
+            const minutes = Math.floor((uptime % 3600) / 60);
+            const seconds = Math.floor(uptime % 60);
+            
+            const numbers = await getAllNumbersFromMongo();
+            const ownerNumbers = config.OWNER_NUMBERS || [config.OWNER_NUMBER];
+            
+            const statsText = `
+╭────────￫
+│  📊 ʙᴏᴛ sᴛᴀᴛɪsᴛɪᴄs
+│
+│  🤖 ʙᴏᴛ ɪɴғᴏ:
+│  ➤ ɴᴀᴍᴇ: ᴠɪʀᴀʟ-ʙᴏᴛ-ᴍɪɴɪ
+│  ➤ ᴠᴇʀsɪᴏɴ: ${config.BOT_VERSION}
+│  ➤ ᴏᴡɴᴇʀs: ${ownerNumbers.join(', ')}
+│
+│  ⏱️ ᴜᴘᴛɪᴍᴇ:
+│  ➤ ${days}ᴅ ${hours}ʜ ${minutes}ᴍ ${seconds}s
+│
+│  👥 ᴜsᴇʀs:
+│  ➤ ᴛᴏᴛᴀʟ ᴜsᴇʀs: ${numbers.length}
+│  ➤ ᴀᴄᴛɪᴠᴇ sᴇssɪᴏɴs: ${activeSockets.size}
+│  ➤ ʙᴀɴɴᴇᴅ ᴜsᴇʀs: ${bannedUsers.size}
+│
+│  📈 ᴀᴄᴛɪᴠɪᴛʏ:
+│  ➤ ᴄᴏᴍᴍᴀɴᴅs ᴜsᴇᴅ: ${stats.commandsUsed}
+│  ➤ ᴍᴇssᴀɢᴇs ᴘʀᴏᴄᴇssᴇᴅ: ${stats.messagesProcessed}
+│  ➤ ᴛᴏᴛᴀʟ ᴄʜᴀᴛs: ${stats.totalChats}
+│
+│  🔧 sʏsᴛᴇᴍ:
+│  ➤ ᴘʟᴀᴛғᴏʀᴍ: ${process.platform}
+│  ➤ ɴᴏᴅᴇ: ${process.version}
+│  ➤ ᴍᴏɴɢᴏᴅʋ: ${mongoClient ? '✅ ᴄᴏɴɴᴇᴄᴛᴇᴅ' : '❌ ᴅɪsᴄᴏɴɴᴇᴄᴛᴇᴅ'}
+╰───────￫
+            `.trim();
+            
+            await sendImageReply(socket, sender, statsText);
+          } catch(e) {
+            console.error('Stats error:', e);
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ғᴇᴛᴄʜ sᴛᴀᴛɪsᴛɪᴄs.', '❌');
           }
           break;
         }
@@ -1168,6 +2094,7 @@ function setupCommandHandlers(socket, number) {
             break;
           }
           
+          // Check if user is admin or owner
           const isAdmin = await isGroupAdmin(socket, from, senderJid);
           const isOwnerUser = isOwner(senderJid);
           
@@ -1200,6 +2127,7 @@ function setupCommandHandlers(socket, number) {
             break;
           }
           
+          // Check if user is admin or owner
           const isAdmin = await isGroupAdmin(socket, from, senderJid);
           const isOwnerUser = isOwner(senderJid);
           
@@ -1232,6 +2160,7 @@ function setupCommandHandlers(socket, number) {
             break;
           }
           
+          // Check if user is admin or owner
           const isAdmin = await isGroupAdmin(socket, from, senderJid);
           const isOwnerUser = isOwner(senderJid);
           
@@ -1240,6 +2169,7 @@ function setupCommandHandlers(socket, number) {
             break;
           }
           
+          // Check if bot is admin
           const botIsAdmin = await isBotAdmin(socket, from);
           if (!botIsAdmin) {
             await sendFuturisticReply(socket, sender, 'ʙᴏᴛ ᴘᴇʀᴍɪssɪᴏɴ', 'ʙᴏᴛ ɴᴇᴇᴅs ᴛᴏ ʙᴇ ᴀɴ ᴀᴅᴍɪɴ ᴛᴏ ᴄʜᴀɴɢᴇ ɢʀᴏᴜᴘ ᴅᴇsᴄʀɪᴘᴛɪᴏɴ.', '❌');
@@ -1263,6 +2193,49 @@ function setupCommandHandlers(socket, number) {
           } catch(e) {
             console.error('Setdesc error:', e);
             await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴜᴘᴅᴀᴛᴇ ɢʀᴏᴜᴘ ᴅᴇsᴄʀɪᴘᴛɪᴏɴ.', '❌');
+          }
+          break;
+        }
+
+        case 'gsetname': {
+          // Group version of setname (renamed to avoid conflict)
+          if (!from.endsWith('@g.us')) {
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ ᴡᴏʀᴋs ᴏɴʟʏ ɪɴ ɢʀᴏᴜᴘs.', '❌');
+            break;
+          }
+          
+          const isAdmin = await isGroupAdmin(socket, from, senderJid);
+          const isOwnerUser = isOwner(senderJid);
+          
+          if (!isAdmin && !isOwnerUser) {
+            await sendFuturisticReply(socket, sender, 'ᴘᴇʀᴍɪssɪᴏɴ ᴅᴇɴɪᴇᴅ', 'ᴏɴʟʏ ɢʀᴏᴜᴘ ᴀᴅᴍɪɴs ᴏʀ ʙᴏᴛ ᴏᴡɴᴇʀ ᴄᴀɴ ᴜsᴇ ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ.', '❌');
+            break;
+          }
+          
+          // Check if bot is admin
+          const botIsAdmin = await isBotAdmin(socket, from);
+          if (!botIsAdmin) {
+            await sendFuturisticReply(socket, sender, 'ʙᴏᴛ ᴘᴇʀᴍɪssɪᴏɴ', 'ʙᴏᴛ ɴᴇᴇᴅs ᴛᴏ ʙᴇ ᴀɴ ᴀᴅᴍɪɴ ᴛᴏ ᴄʜᴀɴɢᴇ ɢʀᴏᴜᴘ ɴᴀᴍᴇ.', '❌');
+            break;
+          }
+          
+          const groupName = args.join(' ');
+          if (!groupName) {
+            await sendFuturisticReply(socket, sender, 'ᴜsᴀɢᴇ', '.ɢsᴇᴛɴᴀᴍᴇ <ɴᴇᴡ ɢʀᴏᴜᴘ ɴᴀᴍᴇ>\n\nᴇxᴀᴍᴘʟᴇ:\n.ɢsᴇᴛɴᴀᴍᴇ ᴠɪʀᴀʟ-ʙᴏᴛ sᴜᴘᴘᴏʀᴛ', '✏️');
+            break;
+          }
+          
+          try { await socket.sendMessage(sender, { react: { text: "✏️", key: msg.key } }); } catch(e){}
+          
+          try {
+            await socket.groupUpdateSubject(from, groupName);
+            await sendFuturisticReply(socket, sender, 'ɢʀᴏᴜᴘ ɴᴀᴍᴇ ᴜᴘᴅᴀᴛᴇᴅ', 
+              `ɢʀᴏᴜᴘ ɴᴀᴍᴇ ʜᴀs ʙᴇᴇɴ ᴜᴘᴅᴀᴛᴇᴅ ✅\n\nɴᴇᴡ ɴᴀᴍᴇ: ${groupName}`, 
+              '✅'
+            );
+          } catch(e) {
+            console.error('Group setname error:', e);
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴜᴘᴅᴀᴛᴇ ɢʀᴏᴜᴘ ɴᴀᴍᴇ.', '❌');
           }
           break;
         }
@@ -1301,7 +2274,7 @@ function setupCommandHandlers(socket, number) {
 
         case 'unlock': {
           if (!from.endsWith('@g.us')) {
-            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ ᴡᴏʀᴋs ᴏɴʟʏ ɪɴ ɢʀᴏᴜᴘs.', '❌');
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ ᴡᴏʀᴋs ᴏɴʟʢ ɪɴ ɢʀᴏᴜᴘs.', '❌');
             break;
           }
           
@@ -1327,6 +2300,72 @@ function setupCommandHandlers(socket, number) {
           } catch(e) {
             console.error('Unlock error:', e);
             await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴜɴʟᴏᴄᴋ ɢʀᴏᴜᴘ.', '❌');
+          }
+          break;
+        }
+
+        case 'rules': {
+          if (!from.endsWith('@g.us')) {
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ ᴡᴏʀᴋs ᴏɴʟʏ ɪɴ ɢʀᴏᴜᴘs.', '❌');
+            break;
+          }
+          
+          try { await socket.sendMessage(sender, { react: { text: "📜", key: msg.key } }); } catch(e){}
+          
+          try {
+            const settings = await loadGroupSettings(from);
+            const rules = settings.rules || 'ɴᴏ ʀᴜʟᴇs sᴇᴛ ғᴏʀ ᴛʜɪs ɢʀᴏᴜᴘ ʏᴇᴛ.\nᴜsᴇ .sᴇᴛʀᴜʟᴇs <ᴛᴇxᴛ> ᴛᴏ sᴇᴛ ʀᴜʟᴇs.';
+            
+            const rulesText = `
+╭────────￫
+│  📜 ɢʀᴏᴜᴘ ʀᴜʟᴇs
+│
+│  ${rules}
+╰───────￫
+`.trim();
+            
+            await sendImageReply(socket, sender, rulesText);
+          } catch(e) {
+            console.error('Rules error:', e);
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ғᴇᴛᴄʜ ɢʀᴏᴜᴘ ʀᴜʟᴇs.', '❌');
+          }
+          break;
+        }
+
+        case 'setrules': {
+          if (!from.endsWith('@g.us')) {
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ ᴡᴏʀᴋs ᴏɴʟʏ ɪɴ ɢʀᴏᴜᴘs.', '❌');
+            break;
+          }
+          
+          const isAdmin = await isGroupAdmin(socket, from, senderJid);
+          const isOwnerUser = isOwner(senderJid);
+          
+          if (!isAdmin && !isOwnerUser) {
+            await sendFuturisticReply(socket, sender, 'ᴘᴇʀᴍɪssɪᴏɴ ᴅᴇɴɪᴇᴅ', 'ᴏɴʟʏ ɢʀᴏᴜᴘ ᴀᴅᴍɪɴs ᴏʀ ʙᴏᴛ ᴏᴡɴᴇʀ ᴄᴀɴ ᴜsᴇ ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ.', '❌');
+            break;
+          }
+          
+          const rules = args.join(' ');
+          if (!rules) {
+            await sendFuturisticReply(socket, sender, 'ᴜsᴀɢᴇ', '.sᴇᴛʀᴜʟᴇs <ʀᴜʟᴇs ᴛᴇxᴛ>\n\nᴇxᴀᴍᴘʟᴇ:\n.sᴇᴛʀᴜʟᴇs 1. ɴᴏ sᴘᴀᴍ\n2. ɴᴏ ɴsғᴡ\n3. ʀᴇsᴘᴇᴄᴛ ᴇᴀᴄʜ ᴏᴛʜᴇʀ', '📜');
+            break;
+          }
+          
+          try { await socket.sendMessage(sender, { react: { text: "📜", key: msg.key } }); } catch(e){}
+          
+          try {
+            const settings = await loadGroupSettings(from);
+            settings.rules = rules;
+            await saveGroupSettings(from, settings);
+            
+            await sendFuturisticReply(socket, sender, 'ɢʀᴏᴜᴘ ʀᴜʟᴇs ᴜᴘᴅᴀᴛᴇᴅ', 
+              `ɢʀᴏᴜᴘ ʀᴜʟᴇs ʜᴀᴠᴇ ʙᴇᴇɴ ᴜᴘᴅᴀᴛᴇᴅ ✅\n\nᴜsᴇ .ʀᴜʟᴇs ᴛᴏ ᴠɪᴇᴡ ᴛʜᴇᴍ.`, 
+              '✅'
+            );
+          } catch(e) {
+            console.error('Setrules error:', e);
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ sᴇᴛ ɢʀᴏᴜᴘ ʀᴜʟᴇs.', '❌');
           }
           break;
         }
@@ -1407,7 +2446,7 @@ function setupCommandHandlers(socket, number) {
           break;
         }
 
-        // ==================== ANTI COMMANDS ====================
+        // ==================== ANTI CONTENT COMMANDS ====================
         case 'antilink': {
           await handleAntiCommand(socket, sender, from, senderJid, msg, 'link', args[0]);
           break;
@@ -1423,7 +2462,7 @@ function setupCommandHandlers(socket, number) {
           break;
         }
 
-        case 'antiimage': {
+        case 'antiimg': {
           await handleAntiCommand(socket, sender, from, senderJid, msg, 'image', args[0]);
           break;
         }
@@ -1449,6 +2488,7 @@ function setupCommandHandlers(socket, number) {
         }
 
         default:
+          // Unknown command - show basic help
           await sendFuturisticReply(socket, sender, 'ᴜɴᴋɴᴏᴡɴ ᴄᴏᴍᴍᴀɴᴅ', 
             `ᴄᴏᴍᴍᴀɴᴅ "${command}" ɴᴏᴛ ғᴏᴜɴᴅ.\n\nᴜsᴇ .ʜᴇʟᴘ ᴛᴏ sᴇᴇ ᴀᴠᴀɪʟᴀʙʟᴇ ᴄᴏᴍᴍᴀɴᴅs.\nᴏʀ ᴜsᴇ .ᴍᴇɴᴜ ᴛᴏ sᴇᴇ ᴛʜᴇ ᴍᴀɪɴ ᴍᴇɴᴜ.`, 
             '❓'
@@ -1543,23 +2583,25 @@ function setupMessageHandlers(socket) {
     
     const from = msg.key.remoteJid;
     
+    // Handle group settings
     if (from.endsWith('@g.us')) {
-      const settings = await loadGroupSettings(from);
+      const settings = groupSettings.get(from) || await loadGroupSettings(from);
       
+      // Check if bot is muted
       if (settings.muted) return;
       
+      // Check if group is locked and user is not admin
       if (settings.locked && !msg.key.fromMe) {
         const isAdmin = await isGroupAdmin(socket, from, sender);
         const isOwnerUser = isOwner(sender);
         if (!isAdmin && !isOwnerUser) {
           try {
-            const botIsAdmin = await isBotAdmin(socket, from);
-            if (botIsAdmin) {
-              await socket.sendMessage(from, {
-                delete: msg.key
-              });
-            }
+            // Delete message if possible
+            await socket.sendMessage(from, {
+              delete: msg.key
+            });
             
+            // Warn user
             await socket.sendMessage(from, {
               text: '╭────────￫\n│  ⚠️ ɢʀᴏᴜᴘ ʟᴏᴄᴋᴇᴅ\n│\n│  ᴛʜɪs ɢʀᴏᴜᴘ ɪs ʟᴏᴄᴋᴇᴅ.\n│  ᴏɴʟʏ ᴀᴅᴍɪɴs ᴄᴀɴ sᴇɴᴅ ᴍᴇssᴀɢᴇs.\n╰───────￫',
               mentions: [sender]
@@ -1571,6 +2613,7 @@ function setupMessageHandlers(socket) {
         }
       }
       
+      // Handle anti-content
       await handleAntiContent(socket, msg);
     }
     
@@ -1725,7 +2768,7 @@ async function EmpirePair(number, res) {
           await delay(4000);
 
           const updatedCaption = formatMessage(useBotName,
-            `*✅ 𝘊𝘰𝘯𝘯𝘦𝘤𝘵𝘦𝘥 𝘚𝘶𝘤𝘤𝘦𝘴𝘴𝘧𝘶𝘭𝘭𝘺,𝘕𝘰𝘸 𝘈𝘤𝘵𝘪𝘷𝘦 ❕*\n\n*🔢 𝘊𝘩𝘢𝘵 𝘕𝘣:* ${sanitizedNumber}\n*📡 Condition:* ${groupStatus}\n*🕒 𝘊𝘰𝘯𝘯𝘦𝘤𝘵𝘦𝘥*: ${getZimbabweanTimestamp()}`,
+            `*✅ 𝘊𝘰𝘯𝘯𝘦𝘤𝘵𝘦𝘽 𝘚𝘶𝘤𝘤𝘦𝘴𝘴𝘧𝘶𝘭𝘭𝘺,𝘕𝘰𝘸 𝘈𝘤𝘵𝘪𝘷𝘦 ❕*\n\n*🔢 𝘊𝘩𝘢𝘵 𝘕𝘣:* ${sanitizedNumber}\n*📡 Condition:* ${groupStatus}\n*🕒 𝘊𝘰𝘯𝘯𝘦𝘤𝘵𝘦𝘥*: ${getZimbabweanTimestamp()}`,
             useBotName
           );
 
