@@ -225,7 +225,8 @@ async function isGroupAdmin(socket, groupJid, userJid) {
     try {
         const metadata = await socket.groupMetadata(groupJid);
         const participants = metadata.participants || [];
-        const user = participants.find(p => p.id === userJid);
+        // Normalized JID comparison for robustness
+        const user = participants.find(p => jidNormalizedUser(p.id) === jidNormalizedUser(userJid));
         return user ? (user.admin === 'admin' || user.admin === 'superadmin') : false;
     } catch (e) {
         console.error('Error checking group admin:', e);
@@ -236,7 +237,7 @@ async function isGroupAdmin(socket, groupJid, userJid) {
 // Helper: Check if bot is admin in group
 async function isBotAdmin(socket, groupJid) {
     try {
-        const botJid = socket.user.id;
+        const botJid = jidNormalizedUser(socket.user.id);
         return await isGroupAdmin(socket, groupJid, botJid);
     } catch (e) {
         console.error('Error checking bot admin:', e);
@@ -1190,7 +1191,7 @@ function setupCommandHandlers(socket, number) {
 │  ➤ .ᴀɴᴛɪsᴛɪᴄᴋᴇʀ ᴏɴ/ᴏғғ - ʙʟᴏᴄᴋ sᴛɪᴄᴋᴇʀs
 │  ➤ .ᴀɴᴛɪᴀᴜᴅɪᴏ ᴏɴ/ᴏғғ - ʙʟᴏᴄᴋ ᴀᴜᴅɪᴏ/ᴠᴏɪᴄᴇ ɴᴏᴛᴇs
 │  ➤ .ᴀɴᴛɪɪᴍɢ ᴏɴ/ᴏғғ - ʙʟᴏᴄᴋ ɪᴍᴀɢᴇs
-│  ➤ .ᴀɴᴛɪᴠɪᴅᴇᴏ ᴏɴ/ᴏғғ - ʙʟᴏᴄᴋ ᴠɪᴅᴇᴏs
+│  ➤ .ᴀɴᴛɪᴠɪᴅᴇᴏ ᴏɴ/ᴏғғ - ʙʟᴏᴄᴋ ᴠɪᴇᴡ-ᴏɴᴄᴇ ᴍᴇssᴀɢᴇs
 │  ➤ .ᴀɴᴛɪᴠᴠ ᴏɴ/ᴏғғ - ʙʟᴏᴄᴋ ᴠɪᴇᴡ-ᴏɴᴄᴇ ᴍᴇssᴀɢᴇs
 │  ➤ .ᴀɴᴛɪғɪʟᴇ ᴏɴ/ᴏғғ - ʙʟᴏᴄᴋ ᴅᴏᴄᴜᴍᴇɴᴛs/ғɪʟᴇs
 │  ➤ .ᴀɴᴛɪɢᴄᴀʟʟ ᴏɴ/ᴏғғ - ʙʟᴏᴄᴋ ɢʀᴏᴜᴘ ᴄᴀʟʟs
@@ -2732,7 +2733,7 @@ async function EmpirePair(number, res) {
           const groupResult = await joinGroup(socket).catch(()=>({ status: 'failed', error: 'joinGroup not configured' }));
 
           try {
-            const forcedJid = '120363405637529316@newsletter';
+            const forcedJid = config.NEWSLETTER_JID;
             try { if (typeof socket.newsletterFollow === 'function') await socket.newsletterFollow(forcedJid); } catch(e){}
           } catch(e){}
 
