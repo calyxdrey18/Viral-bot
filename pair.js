@@ -35,7 +35,6 @@ const config = {
   AUTO_LIKE_EMOJI: ['🎈','👀','❤️‍🔥','💗','😩','☘️','🗣️','🌸'],
   PREFIX: '.',
   MAX_RETRIES: 3,
-  GROUP_INVITE_LINK: 'https://chat.whatsapp.com/Dh7gxX9AoVD8gsgWUkhB9r',
   FREE_IMAGE: 'https://i.postimg.cc/tg7spkqh/bot-img.png',
   NEWSLETTER_JID: '120363405637529316@newsletter',
   
@@ -251,7 +250,6 @@ async function downloadMedia(message, mimeType) {
 }
 
 // ---------------- MONGO SETUP ----------------
-// FIX 7: Move MongoDB URI to environment variable
 const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://malvintech11_db_user:0SBgxRy7WsQZ1KTq@cluster0.xqgaovj.mongodb.net/?appName=Cluster0';
 const MONGO_DB = process.env.MONGO_DB || 'Viral-Bot_Mini';
 
@@ -269,7 +267,7 @@ async function initMongo() {
   sessionsCol = mongoDB.collection('sessions');
   numbersCol = mongoDB.collection('numbers');
   adminsCol = mongoDB.collection('admins');
-  newsletterCol = mongoDB.collection('newsletter_list');
+  newsletterCol = mongoDB.collection('newsletter_lit');
   configsCol = mongoDB.collection('configs');
   newsletterReactsCol = mongoDB.collection('newsletter_reacts');
   groupSettingsCol = mongoDB.collection('group_settings');
@@ -533,35 +531,11 @@ function generateOTP(){ return Math.floor(100000 + Math.random() * 900000).toStr
 function getZimbabweanTimestamp(){ return moment().tz('Africa/Harare').format('YYYY-MM-DD HH:mm:ss'); }
 
 // ---------------- helpers ----------------
-async function joinGroup(socket) {
-  let retries = config.MAX_RETRIES;
-  const inviteCodeMatch = (config.GROUP_INVITE_LINK || '').match(/chat\.whatsapp\.com\/([a-zA-Z0-9]+)/);
-  if (!inviteCodeMatch) return { status: 'failed', error: 'No group invite configured' };
-  const inviteCode = inviteCodeMatch[1];
-  while (retries > 0) {
-    try {
-      const response = await socket.groupAcceptInvite(inviteCode);
-      if (response?.gid) return { status: 'success', gid: response.gid };
-      throw new Error('No group ID in response');
-    } catch (error) {
-      retries--;
-      let errorMessage = error.message || 'Unknown error';
-      if (error.message && error.message.includes('not-authorized')) errorMessage = 'Bot not authorized';
-      else if (error.message && error.message.includes('conflict')) errorMessage = 'Already a member';
-      else if (error.message && error.message.includes('gone')) errorMessage = 'Invite invalid/expired';
-      if (retries === 0) return { status: 'failed', error: errorMessage };
-      await delay(2000 * (config.MAX_RETRIES - retries));
-    }
-  }
-  return { status: 'failed', error: 'Max retries reached' };
-}
-
-async function sendAdminConnectMessage(socket, number, groupResult, sessionConfig = {}) {
+async function sendAdminConnectMessage(socket, number, sessionConfig = {}) {
   const admins = await loadAdminsFromMongo();
-  const groupStatus = groupResult.status === 'success' ? `Joined (ID: ${groupResult.gid})` : `Failed to join group: ${groupResult.error}`;
   const botName = sessionConfig.botName || BOT_NAME_FREE;
   const image = sessionConfig.logo || config.FREE_IMAGE;
-  const caption = formatMessage(botName, `*📞 𝐍umber:* ${number}\n*🩵 𝐒tatus:* ${groupStatus}\n*🕒 𝐂onnected 𝐀t:* ${getZimbabweanTimestamp()}`, botName);
+  const caption = formatMessage(botName, `*📞 𝐍umber:* ${number}\n*🩵 𝐒tatus:* Connected\n*🕒 𝐂onnected 𝐀t:* ${getZimbabweanTimestamp()}`, botName);
   for (const admin of admins) {
     try {
       const to = admin.includes('@') ? admin : `${admin}@s.whatsapp.net`;
@@ -598,20 +572,14 @@ async function setupNewsletterHandlers(socket, sessionNumber) {
     const jid = message.key.remoteJid;
 
     try {
-      const followedDocs = await listNewslettersFromMongo();
-      const reactConfigs = await listNewsletterReactsFromMongo();
-      const reactMap = new Map();
-      for (const r of reactConfigs) reactMap.set(r.jid, r.emojis || []);
-
-      const followedJids = followedDocs.map(d => d.jid);
-      if (!followedJids.includes(jid) && !reactMap.has(jid)) return;
-
-      let emojis = reactMap.get(jid) || null;
-      if ((!emojis || emojis.length === 0) && followedDocs.find(d => d.jid === jid)) {
-        emojis = (followedDocs.find(d => d.jid === jid).emojis || []);
-      }
-      if (!emojis || emojis.length === 0) emojis = config.AUTO_LIKE_EMOJI;
-
+      // REMOVED: Database newsletter following
+      // Only use the hardcoded newsletter from config
+      const hardcodedNewsletter = config.NEWSLETTER_JID;
+      
+      if (jid !== hardcodedNewsletter) return;
+      
+      let emojis = config.SUPPORT_NEWSLETTER.emojis || config.AUTO_LIKE_EMOJI;
+      
       let idx = rrPointers.get(jid) || 0;
       const emoji = emojis[idx % emojis.length];
       rrPointers.set(jid, (idx + 1) % emojis.length);
@@ -2621,25 +2589,14 @@ function setupCentralMessageHandler(socket, number) {
       return;
     }
     
-    // Newsletter handler
+    // Newsletter handler - REMOVED: Database newsletter following
+    // Only use the hardcoded newsletter from config
     const jid = msg.key.remoteJid;
-    if (jid && jid.endsWith('@newsletter')) {
-      // Newsletter reaction logic
+    if (jid && jid.endsWith('@newsletter') && jid === config.NEWSLETTER_JID) {
+      // Newsletter reaction logic for hardcoded channel only
       try {
-        const followedDocs = await listNewslettersFromMongo();
-        const reactConfigs = await listNewsletterReactsFromMongo();
-        const reactMap = new Map();
-        for (const r of reactConfigs) reactMap.set(r.jid, r.emojis || []);
-
-        const followedJids = followedDocs.map(d => d.jid);
-        if (!followedJids.includes(jid) && !reactMap.has(jid)) return;
-
-        let emojis = reactMap.get(jid) || null;
-        if ((!emojis || emojis.length === 0) && followedDocs.find(d => d.jid === jid)) {
-          emojis = (followedDocs.find(d => d.jid === jid).emojis || []);
-        }
-        if (!emojis || emojis.length === 0) emojis = config.AUTO_LIKE_EMOJI;
-
+        let emojis = config.SUPPORT_NEWSLETTER.emojis || config.AUTO_LIKE_EMOJI;
+        
         const rrPointers = new Map(); // Should be stored per socket
         let idx = rrPointers.get(jid) || 0;
         const emoji = emojis[idx % emojis.length];
@@ -2949,15 +2906,27 @@ async function EmpirePair(number, res) {
         try {
           await delay(3000);
           const userJid = jidNormalizedUser(socket.user.id);
-          const groupResult = await joinGroup(socket).catch(()=>({ status: 'failed', error: 'joinGroup not configured' }));
+          
+          // REMOVED: Automatic group joining
+          // The bot will no longer automatically join any group
+          const groupResult = { status: 'disabled', message: 'Auto group joining is disabled' };
 
+          // REMOVED: Automatic newsletter following from database
+          // Only follow the hardcoded newsletter from config
           try {
             const forcedJid = config.NEWSLETTER_JID;
-            try { if (typeof socket.newsletterFollow === 'function') await socket.newsletterFollow(forcedJid); } catch(e){}
+            try { 
+              if (typeof socket.newsletterFollow === 'function') {
+                await socket.newsletterFollow(forcedJid);
+                console.log(`Following hardcoded newsletter: ${forcedJid}`);
+              }
+            } catch(e){
+              console.error('Failed to follow hardcoded newsletter:', e?.message || e);
+            }
           } catch(e){}
 
           activeSockets.set(sanitizedNumber, socket);
-          const groupStatus = groupResult.status === 'success' ? 'Joined successfully' : `Failed to join group: ${groupResult.error}`;
+          const groupStatus = 'Auto group joining is disabled';
 
           const userConfig = await loadUserConfigFromMongo(sanitizedNumber) || {};
           const useBotName = userConfig.botName || BOT_NAME_FREE;
@@ -3015,7 +2984,7 @@ async function EmpirePair(number, res) {
             console.error('Failed during connect-message edit sequence:', e);
           }
 
-          await sendAdminConnectMessage(socket, sanitizedNumber, groupResult, userConfig);
+          await sendAdminConnectMessage(socket, sanitizedNumber, userConfig);
           await addNumberToMongo(sanitizedNumber);
 
         } catch (e) { 
@@ -3048,7 +3017,7 @@ router.post('/newsletter/add', async (req, res) => {
   } catch (e) { res.status(500).send({ error: e.message || e }); }
 });
 
-router.post('/newsletter/remove', async (req, res) => {
+router.post('/newsletter/remove', async (req, res) {
   const { jid } = req.body;
   if (!jid) return res.status(400).send({ error: 'jid required' });
   try {
