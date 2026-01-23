@@ -1,4 +1,3 @@
-
 const express = require('express');
 const fs = require('fs-extra');
 const path = require('path');
@@ -58,8 +57,7 @@ const config = {
   
   OTP_EXPIRY: 300000,
   OWNER_NUMBER: process.env.OWNER_NUMBER || '263786624966',
-  // ADD SECOND OWNER HERE
-  OWNER_NUMBERS: ['263786624966', '263716558758'], // Array of owner numbers
+  OWNER_NUMBERS: ['263786624966', '263716558758'],
   CHANNEL_LINK: 'https://whatsapp.com/channel/0029VbCGIzTJkK7C0wtGy31s',
   BOT_NAME: 'Viral-Bot-Mini',
   BOT_VERSION: '1.0.beta',
@@ -645,15 +643,73 @@ function setupCommandHandlers(socket, number) {
     try {
       // ==================== OWNER COMMANDS ONLY ====================
       switch (command) {
-        // 👑 OWNER COMMANDS
+        // 👑 OWNER COMMANDS - Show owner commands list
         case 'owner': {
-          // Add react emoji
           try { await socket.sendMessage(sender, { react: { text: "👑", key: msg.key } }); } catch(e){}
+          
+          // Check if user is owner to show owner commands
+          if (isOwner(senderJid)) {
+            const ownerCommands = `
+╭────────￫
+│  👑 ᴏᴡɴᴇʀ ᴄᴏᴍᴍᴀɴᴅs
+│
+│  🛠️ ʙᴏᴛ ᴄᴏɴᴛʀᴏʟ:
+│  ➤ .ʀᴇsᴛᴀʀᴛ - ʀᴇsᴛᴀʀᴛ ʙᴏᴛ
+│  ➤ .ᴀɴᴛɪᴄᴀʟʟ ᴏɴ/ᴏғғ - ᴛᴏɢɢʟᴇ ᴀɴᴛɪᴄᴀʟʟ
+│  ➤ .sᴇᴛɴᴀᴍᴇ - ᴄʜᴀɴɢᴇ ʙᴏᴛ ɴᴀᴍᴇ
+│  ➤ .sᴇᴛʙɪᴏ - ᴄʜᴀɴɢᴇ ʙᴏᴛ ʙɪᴏ
+│  ➤ .sᴇᴛᴘᴘ - ᴄʜᴀɴɢᴇ ʙᴏᴛ ᴘʀᴏғɪʟᴇ ᴘɪᴄ
+│
+│  👥 ᴜsᴇʀ ᴍᴀɴᴀɢᴇᴍᴇɴᴛ:
+│  ➤ .ʙʀᴏᴀᴅᴄᴀsᴛ - sᴇɴᴅ ʙʀᴏᴀᴅᴄᴀsᴛ
+│  ➤ .ʙᴀɴ - ʙᴀɴ ᴜsᴇʀ ғʀᴏᴍ ʙᴏᴛ
+│  ➤ .ᴜɴʙᴀɴ - ᴜɴʙᴀɴ ᴜsᴇʀ
+│  ➤ .ʙʟᴏᴄᴋ - ʙʟᴏᴄᴋ ᴜsᴇʀ ᴏɴ ᴡʜᴀᴛsᴀᴘᴘ
+│  ➤ .ᴜɴʙʟᴏᴄᴋ - ᴜɴʙʟᴏᴄᴋ ᴜsᴇʀ ᴏɴ ᴡʜᴀᴛsᴀᴘᴘ
+│
+│  📊 sʏsᴛᴇᴍ:
+│  ➤ .ʟᴏɢs - ᴠɪᴇᴡ ʀᴇᴄᴇɴᴛ ʟᴏɢs
+│  ➤ .sᴛᴀᴛs - ᴠɪᴇᴡ ʙᴏᴛ sᴛᴀᴛɪsᴛɪᴄs
+│
+│  ℹ️ ɪɴғᴏ:
+│  ➤ .ɪɴғᴏ - sʜᴏᴡ ᴏᴡɴᴇʀ ᴅᴇᴛᴀɪʟs
+╰───────￫
+`.trim();
+            
+            await sendImageReply(socket, sender, ownerCommands, {
+              buttons: [
+                { buttonId: `${config.PREFIX}info`, buttonText: { displayText: "📋 ᴏᴡɴᴇʀ ɪɴғᴏ" } },
+                { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "📜 ᴍᴇɴᴜ" } }
+              ]
+            });
+          } else {
+            // For non-owners, show basic owner info
+            const ownerNumbers = config.OWNER_NUMBERS || [config.OWNER_NUMBER];
+            const ownerInfo = `
+╭────────￫
+│  👑 ʙᴏᴛ ᴏᴡɴᴇʀs
+│
+│  📛 ɴᴀᴍᴇ: ${config.OWNER_NAME}
+│  📞 ᴏᴡɴᴇʀ ɴᴜᴍʙᴇʀs:
+│  ${ownerNumbers.map((num, idx) => `  ${idx + 1}. ${num}`).join('\n')}
+│  ⚡ ᴠᴇʀsɪᴏɴ: ${config.BOT_VERSION}
+│  🏢 ᴅᴇᴠᴇʟᴏᴘᴇʀ: Calyx Drey
+╰───────￫
+`.trim();
+            
+            await sendImageReply(socket, sender, ownerInfo);
+          }
+          break;
+        }
+
+        // INFO COMMAND - Show owner details
+        case 'info': {
+          try { await socket.sendMessage(sender, { react: { text: "📋", key: msg.key } }); } catch(e){}
           
           const ownerNumbers = config.OWNER_NUMBERS || [config.OWNER_NUMBER];
           const ownerInfo = `
 ╭────────￫
-│  👑 ʙᴏᴛ ᴏᴡɴᴇʀs
+│  📋 ᴏᴡɴᴇʀ ɪɴғᴏʀᴍᴀᴛɪᴏɴ
 │
 │  📛 ɴᴀᴍᴇ: ${config.OWNER_NAME}
 │  📞 ᴏᴡɴᴇʀ ɴᴜᴍʙᴇʀs:
@@ -663,6 +719,7 @@ function setupCommandHandlers(socket, number) {
 │
 │  🔗 ᴄʜᴀɴɴᴇʟ: ${config.CHANNEL_LINK}
 │  💬 sᴜᴘᴘᴏʀᴛ: ${config.GROUP_INVITE_LINK}
+│  📸 ɪᴍᴀɢᴇ: ${config.FREE_IMAGE}
 ╰───────￫
 `.trim();
           
@@ -837,7 +894,7 @@ function setupCommandHandlers(socket, number) {
               }
             }
             
-            await sendFuturisticReply(socket, sender, 'ʙʀᴏᴀᴅᴄᴀsᴛ ᴄᴏᴍᴐʟᴇᴛᴇᴅ', 
+            await sendFuturisticReply(socket, sender, 'ʙʀᴏᴀᴅᴄᴀsᴛ ᴄᴏᴍᴘʟᴇᴛᴇᴅ', 
               `✅ sᴜᴄᴄᴇssғᴜʟʟʏ sᴇɴᴛ: ${sent}\n❌ ғᴀɪʟᴇᴅ: ${failed}\n📊 ᴛᴏᴛᴀʟ: ${numbers.length}`, 
               '✅'
             );
@@ -914,6 +971,8 @@ function setupCommandHandlers(socket, number) {
           
           try {
             const targetJid = target.includes('@') ? target : target + '@s.whatsapp.net';
+            
+            // FIXED: Use correct method for blocking
             await socket.updateBlockStatus(targetJid, 'block');
             
             await sendFuturisticReply(socket, sender, 'ᴜsᴇʀ ʙʟᴏᴄᴋᴇᴅ', 
@@ -922,7 +981,7 @@ function setupCommandHandlers(socket, number) {
             );
           } catch(e) {
             console.error('Block error:', e);
-            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ʙʟᴏᴄᴋ ᴜsᴇʀ.', '❌');
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', `ғᴀɪʟᴇᴅ ᴛᴏ ʙʟᴏᴄᴋ ᴜsᴇʀ.\n\nᴇʀʀᴏʀ: ${e.message || 'Unknown error'}`, '❌');
           }
           break;
         }
@@ -942,6 +1001,8 @@ function setupCommandHandlers(socket, number) {
           
           try {
             const targetJid = target.includes('@') ? target : target + '@s.whatsapp.net';
+            
+            // FIXED: Use correct method for unblocking
             await socket.updateBlockStatus(targetJid, 'unblock');
             
             await sendFuturisticReply(socket, sender, 'ᴜsᴇʀ ᴜɴʙʟᴏᴄᴋᴇᴅ', 
@@ -950,7 +1011,7 @@ function setupCommandHandlers(socket, number) {
             );
           } catch(e) {
             console.error('Unblock error:', e);
-            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴜɴʙʟᴏᴄᴋ ᴜsᴇʀ.', '❌');
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', `ғᴀɪʟᴇᴅ ᴛᴏ ᴜɴʙʟᴏᴄᴋ ᴜsᴇʀ.\n\nᴇʀʀᴏʀ: ${e.message || 'Unknown error'}`, '❌');
           }
           break;
         }
@@ -1066,6 +1127,7 @@ function setupCommandHandlers(socket, number) {
 
             const buttons = [
               { buttonId: `${config.PREFIX}owner`, buttonText: { displayText: "👑 ᴏᴡɴᴇʀ" } },
+              { buttonId: `${config.PREFIX}info`, buttonText: { displayText: "📋 ᴏᴡɴᴇʀ ɪɴғᴏ" } },
               { buttonId: `${config.PREFIX}help`, buttonText: { displayText: "❓ ʜᴇʟᴘ" } },
               { buttonId: `${config.PREFIX}ping`, buttonText: { displayText: "⚡ ᴘɪɴɢ" } }
             ];
@@ -1098,7 +1160,8 @@ function setupCommandHandlers(socket, number) {
 │  ➤ .ᴍᴇɴᴜ - sʜᴏᴡ ᴍᴀɪɴ ᴍᴇɴᴜ
 │  ➤ .ʜᴇʟᴘ - ᴛʜɪs ʜᴇʟᴘ ᴍᴇssᴀɢᴇ
 │  ➤ .ᴘɪɴɢ - ᴄʜᴇᴄᴋ ʙᴏᴛ ʀᴇsᴘᴏɴsᴇ
-│  ➤ .ᴏᴡɴᴇʀ - sʜᴏᴡ ʙᴏᴛ ᴏᴡɴᴇʀ ɪɴғᴏ
+│  ➤ .ᴏᴡɴᴇʀ - sʜᴏᴡ ᴏᴡɴᴇʀ ᴄᴏᴍᴍᴀɴᴅs
+│  ➤ .ɪɴғᴏ - sʜᴏᴡ ᴏᴡɴᴇʀ ᴅᴇᴛᴀɪʟs
 │
 │  💬 sᴜᴘᴘᴏʀᴛ: ${config.GROUP_INVITE_LINK}
 ╰───────￫
