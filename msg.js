@@ -1,9 +1,8 @@
-// ⚠️ UPDATED IMPORT TO MATCH PACKAGE.JSON
 const {
     proto,
     downloadContentFromMessage,
     getContentType
-} = require('@whiskeysockets/baileys')
+} = require('@whiskeysockets/baileys') // Fixed import
 const fs = require('fs')
 
 
@@ -217,4 +216,4 @@ const sms = (conn, m) => {
 module.exports = {
     sms,
     downloadMediaMessage
-            }
+}
