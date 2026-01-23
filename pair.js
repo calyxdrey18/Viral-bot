@@ -15,7 +15,7 @@ const { MongoClient } = require('mongodb');
 const ffmpeg = require('fluent-ffmpeg');
 const ffmpegPath = require('ffmpeg-static');
 
-// Set ffmpeg path
+// Set ffmpeg path explicitly
 ffmpeg.setFfmpegPath(ffmpegPath);
 
 // ⚠️ USING STABLE LIBRARY
