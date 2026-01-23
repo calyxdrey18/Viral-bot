@@ -96,19 +96,22 @@ function addLog(type, message) {
 
 // Helper: Check if user is banned
 function isBanned(userJid) {
-    return bannedUsers.has(userJid);
+    if (!userJid) return false;
+    const normalized = jidNormalizedUser(userJid);
+    return bannedUsers.has(normalized);
 }
 
-// Helper: Check if sender is owner (UPDATED FOR MULTIPLE OWNERS)
+// Helper: Check if sender is owner (UPDATED FOR MULTIPLE OWNERS & NORMALIZATION)
 function isOwner(senderJid) {
     try {
-        // Extract number from JID
-        const senderNumber = senderJid.split('@')[0].replace(/[^0-9]/g, '');
+        if (!senderJid) return false;
+        // Normalize JID to remove device info (e.g. :2@...)
+        const normalizedJid = jidNormalizedUser(senderJid);
+        const senderNumber = normalizedJid.split('@')[0].replace(/[^0-9]/g, '');
         
-        // Check against all owner numbers
-        const ownerNumbers = config.OWNER_NUMBERS || [config.OWNER_NUMBER];
+        // Normalize owner numbers from config
+        const ownerNumbers = (config.OWNER_NUMBERS || [config.OWNER_NUMBER]).map(n => n.replace(/[^0-9]/g, ''));
         
-        // Check if sender number matches any owner number
         return ownerNumbers.includes(senderNumber);
     } catch (e) {
         console.error('Error in isOwner check:', e);
@@ -119,16 +122,17 @@ function isOwner(senderJid) {
 // Helper: Get user profile info
 async function getUserProfile(socket, userJid) {
     try {
-        const [user] = await socket.onWhatsApp(userJid);
+        const normalized = jidNormalizedUser(userJid);
+        const [user] = await socket.onWhatsApp(normalized);
         if (user && user.exists) {
-            const profile = await socket.fetchStatus(userJid).catch(() => ({}));
-            userProfileCache.set(userJid, {
+            const profile = await socket.fetchStatus(normalized).catch(() => ({}));
+            userProfileCache.set(normalized, {
                 name: user.verifiedName || user.name || 'Unknown',
                 bio: profile.status || 'No bio',
                 lastSeen: profile.setAt ? new Date(profile.setAt).toLocaleString() : 'Unknown'
             });
         }
-        return userProfileCache.get(userJid) || { name: 'Unknown', bio: 'No bio', lastSeen: 'Unknown' };
+        return userProfileCache.get(normalized) || { name: 'Unknown', bio: 'No bio', lastSeen: 'Unknown' };
     } catch (e) {
         return userProfileCache.get(userJid) || { name: 'Unknown', bio: 'No bio', lastSeen: 'Unknown' };
     }
@@ -210,7 +214,8 @@ async function isGroupAdmin(socket, groupJid, userJid) {
     try {
         const metadata = await socket.groupMetadata(groupJid);
         const participants = metadata.participants || [];
-        const user = participants.find(p => jidNormalizedUser(p.id) === jidNormalizedUser(userJid));
+        const normalizedUserJid = jidNormalizedUser(userJid);
+        const user = participants.find(p => jidNormalizedUser(p.id) === normalizedUserJid);
         return user ? (user.admin === 'admin' || user.admin === 'superadmin') : false;
     } catch (e) {
         console.error('Error checking group admin:', e);
@@ -811,11 +816,22 @@ function setupCommandHandlers(socket, number) {
     }
 
     const from = msg.key.remoteJid;
-    const sender = from;
-    const nowsender = msg.key.fromMe ? (socket.user.id.split(':')[0] + '@s.whatsapp.net' || socket.user.id) : (msg.key.participant || msg.key.remoteJid);
-    const senderNumber = (nowsender || '').split('@')[0];
-    const senderJid = nowsender; // Use full JID for owner check
-    const botNumber = socket.user.id ? socket.user.id.split(':')[0] : '';
+    const isGroup = from.endsWith('@g.us');
+    
+    // Determine the sender JID correctly
+    let senderRaw;
+    if (msg.key.fromMe) {
+        senderRaw = socket.user.id;
+    } else if (isGroup) {
+        senderRaw = msg.key.participant;
+    } else {
+        senderRaw = from;
+    }
+    
+    const senderJid = jidNormalizedUser(senderRaw);
+    const senderNumber = senderJid.split('@')[0];
+    const botNumber = socket.user.id ? jidNormalizedUser(socket.user.id).split('@')[0] : '';
+    const sender = from; // For replying
 
     const body = (type === 'conversation') ? msg.message.conversation
       : (type === 'extendedTextMessage') ? msg.message.extendedTextMessage.text
@@ -859,13 +875,13 @@ function setupCommandHandlers(socket, number) {
     addLog('COMMAND', `${command} used by ${senderJid} in ${from}`);
 
     // Check if user is banned
-    if (isBanned(nowsender)) {
+    if (isBanned(senderJid)) {
       await sendImageReply(socket, sender, '╭────────￫\n│  ❌ ʙᴀɴɴᴇᴅ\n│\n│  ʏᴏᴜ ᴀʀᴇ ʙᴀɴɴᴇᴅ ғʀᴏᴍ ᴜsɪɴɢ ʙᴏᴛ ᴄᴏᴍᴍᴀɴᴅs.\n╰───────￫');
       return;
     }
 
     // Check for anti-content before processing commands
-    if (from.endsWith('@g.us')) {
+    if (isGroup) {
       const handled = await handleAntiContent(socket, msg);
       if (handled) return;
     }
@@ -1695,7 +1711,7 @@ function setupCommandHandlers(socket, number) {
 
         case 'setname': {
           // Check if this is the owner command (in private chat)
-          if (!from.endsWith('@g.us')) {
+          if (!isGroup) {
             // Owner command in private chat
             const hasPermission = await checkOwnerPermission(socket, sender, senderJid, 'setname');
             if (!hasPermission) break;
@@ -1752,7 +1768,7 @@ function setupCommandHandlers(socket, number) {
             break;
           }
           
-          if (from.endsWith('@g.us')) {
+          if (isGroup) {
             // GROUP setpp command
             const isAdmin = await isGroupAdmin(socket, from, senderJid);
             const isOwnerUser = isOwner(senderJid);
@@ -1872,7 +1888,7 @@ function setupCommandHandlers(socket, number) {
           
           // Extract username
           const targetUsername = target.split('@')[0];
-          bannedUsers.set(target, `ʙᴀɴɴᴇᴅ ʙʏ ᴏᴡɴᴇʀ ᴀᴛ ${getZimbabweanTimestamp()}`);
+          bannedUsers.set(jidNormalizedUser(target), `ʙᴀɴɴᴇᴅ ʙʏ ᴏᴡɴᴇʀ ᴀᴛ ${getZimbabweanTimestamp()}`);
           
           await sendFuturisticReply(socket, sender, 'ᴜsᴇʀ ʙᴀɴɴᴇᴅ', 
             `ᴜsᴇʀ ${targetUsername} ʜᴀs ʙᴇᴇɴ ʙᴀɴɴᴇᴅ ғʀᴏᴍ ᴜsɪɴɢ ʙᴏᴛ ᴄᴏᴍᴍᴀɴᴅs ✅\n\nᴛɪᴍᴇ: ${getZimbabweanTimestamp()}`, 
@@ -1896,8 +1912,9 @@ function setupCommandHandlers(socket, number) {
           
           // Extract username
           const targetUsername = target.split('@')[0];
-          const wasBanned = bannedUsers.has(target);
-          bannedUsers.delete(target);
+          const normalizedTarget = jidNormalizedUser(target);
+          const wasBanned = bannedUsers.has(normalizedTarget);
+          bannedUsers.delete(normalizedTarget);
           
           await sendFuturisticReply(socket, sender, wasBanned ? 'ᴜsᴇʀ ᴜɴʙᴀɴɴᴇᴅ' : 'ᴜsᴇʀ ɴᴏᴛ ʙᴀɴɴᴇᴅ', 
             wasBanned 
@@ -1922,7 +1939,7 @@ function setupCommandHandlers(socket, number) {
           try { await socket.sendMessage(sender, { react: { text: "🔒", key: msg.key } }); } catch(e){}
           
           try {
-            const targetJid = target.includes('@') ? target : target + '@s.whatsapp.net';
+            const targetJid = jidNormalizedUser(target.includes('@') ? target : target + '@s.whatsapp.net');
             
             // FIXED: Use correct method for blocking
             await socket.updateBlockStatus(targetJid, 'block');
@@ -1952,7 +1969,7 @@ function setupCommandHandlers(socket, number) {
           try { await socket.sendMessage(sender, { react: { text: "🔓", key: msg.key } }); } catch(e){}
           
           try {
-            const targetJid = target.includes('@') ? target : target + '@s.whatsapp.net';
+            const targetJid = jidNormalizedUser(target.includes('@') ? target : target + '@s.whatsapp.net');
             
             // FIXED: Use correct method for unblocking
             await socket.updateBlockStatus(targetJid, 'unblock');
@@ -2054,7 +2071,7 @@ function setupCommandHandlers(socket, number) {
 
         // ==================== ADMIN/GROUP COMMANDS ====================
         case 'mute': {
-          if (!from.endsWith('@g.us')) {
+          if (!isGroup) {
             await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ ᴡᴏʀᴋs ᴏɴʟʏ ɪɴ ɢʀᴏᴜᴘs.', '❌');
             break;
           }
@@ -2087,7 +2104,7 @@ function setupCommandHandlers(socket, number) {
         }
 
         case 'unmute': {
-          if (!from.endsWith('@g.us')) {
+          if (!isGroup) {
             await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ ᴡᴏʀᴋs ᴏɴʟʏ ɪɴ ɢʀᴏᴜᴘs.', '❌');
             break;
           }
@@ -2120,7 +2137,7 @@ function setupCommandHandlers(socket, number) {
         }
 
         case 'setdesc': {
-          if (!from.endsWith('@g.us')) {
+          if (!isGroup) {
             await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ ᴡᴏʀᴋs ᴏɴʟʏ ɪɴ ɢʀᴏᴜᴘs.', '❌');
             break;
           }
@@ -2164,7 +2181,7 @@ function setupCommandHandlers(socket, number) {
 
         case 'gsetname': {
           // Group version of setname (renamed to avoid conflict)
-          if (!from.endsWith('@g.us')) {
+          if (!isGroup) {
             await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ ᴡᴏʀᴋs ᴏɴʟʏ ɪɴ ɢʀᴏᴜᴘs.', '❌');
             break;
           }
@@ -2206,7 +2223,7 @@ function setupCommandHandlers(socket, number) {
         }
 
         case 'lock': {
-          if (!from.endsWith('@g.us')) {
+          if (!isGroup) {
             await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ ᴡᴏʀᴋs ᴏɴʟʏ ɪɴ ɢʀᴏᴜᴘs.', '❌');
             break;
           }
@@ -2238,7 +2255,7 @@ function setupCommandHandlers(socket, number) {
         }
 
         case 'unlock': {
-          if (!from.endsWith('@g.us')) {
+          if (!isGroup) {
             await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ ᴡᴏʀᴋs ᴏɴʟʢ ɪɴ ɢʀᴏᴜᴘs.', '❌');
             break;
           }
@@ -2270,7 +2287,7 @@ function setupCommandHandlers(socket, number) {
         }
 
         case 'rules': {
-          if (!from.endsWith('@g.us')) {
+          if (!isGroup) {
             await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ ᴡᴏʀᴋs ᴏɴʟʏ ɪɴ ɢʀᴏᴜᴘs.', '❌');
             break;
           }
@@ -2298,7 +2315,7 @@ function setupCommandHandlers(socket, number) {
         }
 
         case 'setrules': {
-          if (!from.endsWith('@g.us')) {
+          if (!isGroup) {
             await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ ᴡᴏʀᴋs ᴏɴʟʏ ɪɴ ɢʀᴏᴜᴘs.', '❌');
             break;
           }
@@ -2336,7 +2353,7 @@ function setupCommandHandlers(socket, number) {
         }
 
         case 'welcome': {
-          if (!from.endsWith('@g.us')) {
+          if (!isGroup) {
             await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ ᴡᴏʀᴋs ᴏɴʟʏ ɪɴ ɢʀᴏᴜᴘs.', '❌');
             break;
           }
@@ -2374,7 +2391,7 @@ function setupCommandHandlers(socket, number) {
         }
 
         case 'goodbye': {
-          if (!from.endsWith('@g.us')) {
+          if (!isGroup) {
             await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ᴛʜɪs ᴄᴏᴍᴍᴀɴᴅ ᴡᴏʀᴋs ᴏɴʟʏ ɪɴ ɢʀᴏᴜᴘs.', '❌');
             break;
           }
@@ -2540,7 +2557,10 @@ function setupMessageHandlers(socket) {
     const msg = messages[0];
     if (!msg.message || msg.key.remoteJid === 'status@broadcast' || msg.key.remoteJid === config.NEWSLETTER_JID) return;
     
-    const sender = msg.key.fromMe ? socket.user.id : (msg.key.participant || msg.key.remoteJid);
+    // Normalize sender
+    const senderRaw = msg.key.fromMe ? socket.user.id : (msg.key.participant || msg.key.remoteJid);
+    const sender = jidNormalizedUser(senderRaw);
+    
     if (isBanned(sender)) {
       try { await sendFuturisticReply(socket, sender, 'ʙᴀɴɴᴇᴅ', 'ʏᴏᴜ ᴀʀᴇ ʙᴀɴɴᴇᴅ ғʀᴏᴍ ᴜsɪɴɢ ʙᴏᴛ ᴄᴏᴍᴍᴀɴᴅs.', '❌'); } catch(e) {}
       return;
