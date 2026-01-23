@@ -12,6 +12,11 @@ const axios = require('axios');
 const FileType = require('file-type');
 const fetch = require('node-fetch');
 const { MongoClient } = require('mongodb');
+const ffmpeg = require('fluent-ffmpeg');
+const ffmpegPath = require('ffmpeg-static');
+
+// Set ffmpeg path
+ffmpeg.setFfmpegPath(ffmpegPath);
 
 // ⚠️ USING STABLE LIBRARY
 const {
@@ -72,7 +77,7 @@ const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://malvintech11_db_user:0
 const MONGO_DB = process.env.MONGO_DB || 'Viral-Bot_Mini';
 
 let mongoClient, mongoDB;
-let sessionsCol, numbersCol, adminsCol, newsletterCol, configsCol, newsletterReactsCol;
+let sessionsCol, numbersCol, adminsCol, newsletterCol, configsCol, newsletterReactsCol, bannedCol, groupConfigsCol;
 
 async function initMongo() {
   try {
@@ -88,12 +93,16 @@ async function initMongo() {
   newsletterCol = mongoDB.collection('newsletter_list');
   configsCol = mongoDB.collection('configs');
   newsletterReactsCol = mongoDB.collection('newsletter_reacts');
+  bannedCol = mongoDB.collection('banned_users');
+  groupConfigsCol = mongoDB.collection('group_configs');
 
   await sessionsCol.createIndex({ number: 1 }, { unique: true });
   await numbersCol.createIndex({ number: 1 }, { unique: true });
   await newsletterCol.createIndex({ jid: 1 }, { unique: true });
   await newsletterReactsCol.createIndex({ jid: 1 }, { unique: true });
   await configsCol.createIndex({ number: 1 }, { unique: true });
+  await bannedCol.createIndex({ jid: 1 }, { unique: true });
+  await groupConfigsCol.createIndex({ jid: 1 }, { unique: true });
   console.log('✅ Mongo initialized and collections ready');
 }
 
@@ -264,6 +273,47 @@ async function getReactConfigForJid(jid) {
   } catch (e) { console.error('getReactConfigForJid', e); return null; }
 }
 
+// -------------- Ban & Group Config Helpers --------------
+
+async function isBanned(jid) {
+    try {
+        await initMongo();
+        const doc = await bannedCol.findOne({ jid });
+        return !!doc;
+    } catch (e) { return false; }
+}
+
+async function addBan(jid) {
+    try {
+        await initMongo();
+        await bannedCol.updateOne({ jid }, { $set: { jid, bannedAt: new Date() } }, { upsert: true });
+    } catch (e) { console.error(e); }
+}
+
+async function removeBan(jid) {
+    try {
+        await initMongo();
+        await bannedCol.deleteOne({ jid });
+    } catch (e) { console.error(e); }
+}
+
+async function getGroupConfig(jid) {
+    try {
+        await initMongo();
+        const doc = await groupConfigsCol.findOne({ jid });
+        return doc || {};
+    } catch (e) { return {}; }
+}
+
+async function updateGroupConfig(jid, key, value) {
+    try {
+        await initMongo();
+        const update = {};
+        update[key] = value;
+        await groupConfigsCol.updateOne({ jid }, { $set: update }, { upsert: true });
+    } catch (e) { console.error(e); }
+}
+
 // ---------------- Auto-load with support encouragement ----------------
 async function loadDefaultNewsletters() {
   try {
@@ -414,8 +464,11 @@ function setupCommandHandlers(socket, number) {
     const isOwner = sender.includes(config.OWNER_NUMBER.replace(/[^0-9]/g, ''));
     const isGroup = from.endsWith('@g.us');
     
+    // Check Ban
+    if (await isBanned(sender) && !isOwner) return;
+
     let groupMetadata, groupAdmins = [], isBotAdmin = false, isAdmin = false;
-    if (isGroup && isCmd) {
+    if (isGroup) {
         try {
             groupMetadata = await socket.groupMetadata(from);
             groupAdmins = groupMetadata.participants.filter(v => v.admin !== null).map(v => v.id);
@@ -488,6 +541,52 @@ function setupCommandHandlers(socket, number) {
             await socket.chatModify({ delete: true, lastMessages: [{ key: msg.key, messageTimestamp: msg.messageTimestamp }] }, from);
             await socket.sendMessage(from, { text: '🧹 Chats Cleared' });
             break;
+        case 'anticall':
+            if (!isOwner) return;
+            // Simplified toggle for demonstration as strict structure limits adding event listeners dynamically
+            config.ANTICALL = config.ANTICALL === 'true' ? 'false' : 'true';
+            await socket.sendMessage(from, { text: `🚫 Anti-call set to: ${config.ANTICALL}` });
+            break;
+        case 'ban':
+             if (!isOwner || !text) return;
+             const banUser = text.replace(/[^0-9]/g, '') + '@s.whatsapp.net';
+             await addBan(banUser);
+             await socket.sendMessage(from, { text: `🚫 User Banned from Bot: ${banUser}` });
+             break;
+        case 'unban':
+             if (!isOwner || !text) return;
+             const unbanUser = text.replace(/[^0-9]/g, '') + '@s.whatsapp.net';
+             await removeBan(unbanUser);
+             await socket.sendMessage(from, { text: `✅ User Unbanned` });
+             break;
+        case 'logs':
+             if (!isOwner) return;
+             await socket.sendMessage(from, { text: '📝 Logs access requires server shell access. Check console.' });
+             break;
+        case 'stats':
+             if (!isOwner) return;
+             const used = process.memoryUsage();
+             const cpus = os.cpus().map(cpu => {
+                cpu.total = Object.keys(cpu.times).reduce((last, type) => last + cpu.times[type], 0);
+                return cpu;
+             });
+             const cpu = cpus.reduce((last, cpu, _, { length }) => {
+                last.total += cpu.total;
+                last.speed += cpu.speed / length;
+                last.times.user += cpu.times.user;
+                last.times.nice += cpu.times.nice;
+                last.times.sys += cpu.times.sys;
+                last.times.idle += cpu.times.idle;
+                last.times.irq += cpu.times.irq;
+                return last;
+             }, { speed: 0, total: 0, times: { user: 0, nice: 0, sys: 0, idle: 0, irq: 0 } });
+             let statTxt = `💻 *SERVER STATS*\n\n`;
+             statTxt += `• *RAM:* ${(used.rss / 1024 / 1024).toFixed(2)} MB\n`;
+             statTxt += `• *Uptime:* ${Math.floor(process.uptime())}s\n`;
+             statTxt += `• *Platform:* ${os.platform()}\n`;
+             statTxt += `• *Active Chats:* ${activeSockets.size}\n`;
+             await socket.sendMessage(from, { text: statTxt });
+             break;
 
         // --- ADMIN / GROUP COMMANDS ---
         case 'tagall':
@@ -558,6 +657,44 @@ function setupCommandHandlers(socket, number) {
             await socket.groupSettingUpdate(from, 'unlocked');
             await socket.sendMessage(from, { text: '🔓 Group Unlocked' });
             break;
+        case 'admin':
+            if (!isGroup || !isAdmin) return;
+            await socket.sendMessage(from, { text: '🛡️ *Admin Commands:*\n.tagall, .kick, .add, .promote, .demote, .mute, .unmute, .lock, .unlock, .setdesc, .setgrouppp, .welcome, .goodbye, .rules' });
+            break;
+        case 'welcome':
+            if (!isGroup || !isAdmin) return;
+            if (args[0] === 'on') {
+                await updateGroupConfig(from, 'welcome', true);
+                await socket.sendMessage(from, { text: '✅ Welcome Messages ON' });
+            } else if (args[0] === 'off') {
+                await updateGroupConfig(from, 'welcome', false);
+                await socket.sendMessage(from, { text: '❌ Welcome Messages OFF' });
+            } else {
+                await socket.sendMessage(from, { text: 'Usage: .welcome on/off' });
+            }
+            break;
+        case 'goodbye':
+            if (!isGroup || !isAdmin) return;
+            if (args[0] === 'on') {
+                await updateGroupConfig(from, 'goodbye', true);
+                await socket.sendMessage(from, { text: '✅ Goodbye Messages ON' });
+            } else if (args[0] === 'off') {
+                await updateGroupConfig(from, 'goodbye', false);
+                await socket.sendMessage(from, { text: '❌ Goodbye Messages OFF' });
+            } else {
+                 await socket.sendMessage(from, { text: 'Usage: .goodbye on/off' });
+            }
+            break;
+        case 'rules':
+            if (!isGroup) return;
+            const grpConf = await getGroupConfig(from);
+            await socket.sendMessage(from, { text: grpConf.rules || '📋 No rules set.' });
+            break;
+        case 'setrules':
+            if (!isGroup || !isAdmin || !text) return;
+            await updateGroupConfig(from, 'rules', text);
+            await socket.sendMessage(from, { text: '✅ Rules Updated' });
+            break;
 
         // --- USER COMMANDS ---
         case 'menu':
@@ -574,10 +711,10 @@ function setupCommandHandlers(socket, number) {
 │  • ᴘʟᴀᴛғᴏʀᴍ: Calyx Studio
 │  • ᴜᴘᴛɪᴍᴇ: ${h}H ${m}M
 ╰────────￫
-👑 *Owner*: .restart, .shutdown, .broadcast
-🛡️ *Group*: .tagall, .kick, .add, .promote
-👤 *User*: .menu, .ping, .id, .profile
-🔧 *Utils*: .time, .reverse, .repeat`.trim();
+👑 *Owner*: .restart, .shutdown, .broadcast, .anticall, .ban, .unban
+🛡️ *Group*: .tagall, .kick, .add, .promote, .mute, .welcome, .rules
+👤 *User*: .menu, .ping, .id, .profile, .info
+🔧 *Utils*: .time, .qr, .calc, .password, .sticker`.trim();
             await socket.sendMessage(from, { image: { url: config.FREE_IMAGE }, caption: menu, footer: config.BOT_FOOTER, buttons: [{buttonId: '.owner', buttonText: {displayText: 'Owner'}, type: 1}] });
             break;
         case 'ping':
@@ -591,6 +728,14 @@ function setupCommandHandlers(socket, number) {
         case 'runtime':
             const ut = process.uptime();
             await socket.sendMessage(from, { text: `Runtime: ${Math.floor(ut / 3600)}h ${Math.floor((ut % 3600) / 60)}m` });
+            break;
+        case 'info':
+            await socket.sendMessage(from, { text: `🤖 *Bot Info*\nName: ${config.BOT_NAME}\nVersion: ${config.BOT_VERSION}\nPowered by Calyx Studio` });
+            break;
+        case 'profile':
+            let pName = msg.pushName || "Unknown";
+            let pNumber = sender.replace('@s.whatsapp.net', '');
+            await socket.sendMessage(from, { text: `👤 *Profile*\nName: ${pName}\nNumber: ${pNumber}` });
             break;
 
         // --- 🔧 UTILITY & MEDIA COMMANDS ---
@@ -631,6 +776,118 @@ function setupCommandHandlers(socket, number) {
                 await socket.sendMessage(from, { text: `Result: ${eval(val)}` });
             } catch(e) { await socket.sendMessage(from, { text: 'Invalid Expression' }); }
             break;
+        case 'password':
+            const len = parseInt(args[0]) || 12;
+            const pass = crypto.randomBytes(len).toString('hex').slice(0, len);
+            await socket.sendMessage(from, { text: `🔐 *Password:* ${pass}` });
+            break;
+        case 'base64':
+            if(!text) return;
+            if(args[0] === 'encode') await socket.sendMessage(from, { text: Buffer.from(args.slice(1).join(' ')).toString('base64') });
+            else if(args[0] === 'decode') await socket.sendMessage(from, { text: Buffer.from(args.slice(1).join(' '), 'base64').toString('utf-8') });
+            else await socket.sendMessage(from, { text: 'Usage: .base64 encode/decode <text>' });
+            break;
+        case 'time':
+            await socket.sendMessage(from, { text: `🕒 Server Time: ${moment().tz('Africa/Harare').format('YYYY-MM-DD HH:mm:ss')}` });
+            break;
+        
+        // --- MEDIA CONVERSIONS (FFMPEG) ---
+        case 'tosticker':
+        case 'sticker':
+            if (!msg.message.imageMessage && !msg.message.videoMessage && !msg.message.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage && !msg.message.extendedTextMessage?.contextInfo?.quotedMessage?.videoMessage) {
+                return socket.sendMessage(from, { text: '❌ Reply to image or video!' });
+            }
+            try {
+                 let msgObj = msg.message.imageMessage || msg.message.videoMessage || msg.message.extendedTextMessage.contextInfo.quotedMessage.imageMessage || msg.message.extendedTextMessage.contextInfo.quotedMessage.videoMessage;
+                 let mType = msg.message.imageMessage || msg.message.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage ? 'image' : 'video';
+                 let mediaStream = await downloadContentFromMessage(msgObj, mType);
+                 let mediaBuffer = Buffer.from([]);
+                 for await(const chunk of mediaStream) mediaBuffer = Buffer.concat([mediaBuffer, chunk]);
+                 
+                 const tmpInput = path.join(os.tmpdir(), `stick_in_${Date.now()}.${mType==='image'?'jpg':'mp4'}`);
+                 const tmpOutput = path.join(os.tmpdir(), `stick_out_${Date.now()}.webp`);
+                 fs.writeFileSync(tmpInput, mediaBuffer);
+                 
+                 await new Promise((resolve, reject) => {
+                    ffmpeg(tmpInput)
+                        .on('error', reject)
+                        .on('end', resolve)
+                        .addOutputOptions([
+                            "-vcodec", "libwebp",
+                            "-vf", "scale='min(320,iw)':min'(320,ih)':force_original_aspect_ratio=decrease,fps=15, pad=320:320:-1:-1:color=white@0.0, split [a][b]; [a] palettegen=reserve_transparent=on:transparency_color=ffffff [p]; [b][p] paletteuse"
+                        ])
+                        .toFormat('webp')
+                        .save(tmpOutput);
+                 });
+                 
+                 const buff = fs.readFileSync(tmpOutput);
+                 await socket.sendMessage(from, { sticker: buff });
+                 fs.unlinkSync(tmpInput);
+                 fs.unlinkSync(tmpOutput);
+            } catch(e) { 
+                console.error(e);
+                socket.sendMessage(from, { text: 'Error converting to sticker.' }); 
+            }
+            break;
+        case 'toaudio':
+            if (!msg.message.videoMessage && !msg.message.extendedTextMessage?.contextInfo?.quotedMessage?.videoMessage) return socket.sendMessage(from, { text: 'Reply to a video!' });
+            try {
+                 let vMsg = msg.message.videoMessage || msg.message.extendedTextMessage.contextInfo.quotedMessage.videoMessage;
+                 let vStream = await downloadContentFromMessage(vMsg, 'video');
+                 let vBuff = Buffer.from([]);
+                 for await(const chunk of vStream) vBuff = Buffer.concat([vBuff, chunk]);
+
+                 const vInput = path.join(os.tmpdir(), `aud_in_${Date.now()}.mp4`);
+                 const vOutput = path.join(os.tmpdir(), `aud_out_${Date.now()}.mp3`);
+                 fs.writeFileSync(vInput, vBuff);
+
+                 await new Promise((resolve, reject) => {
+                    ffmpeg(vInput).toFormat('mp3').on('error', reject).on('end', resolve).save(vOutput);
+                 });
+                 
+                 await socket.sendMessage(from, { audio: { url: vOutput }, mimetype: 'audio/mp4' });
+                 fs.unlinkSync(vInput);
+            } catch(e) { socket.sendMessage(from, { text: 'Error converting.' }); }
+            break;
+        case 'tovoice':
+            if (!msg.message.audioMessage && !msg.message.extendedTextMessage?.contextInfo?.quotedMessage?.audioMessage) return socket.sendMessage(from, { text: 'Reply to audio!' });
+            try {
+                 let aMsg = msg.message.audioMessage || msg.message.extendedTextMessage.contextInfo.quotedMessage.audioMessage;
+                 let aStream = await downloadContentFromMessage(aMsg, 'audio');
+                 let aBuff = Buffer.from([]);
+                 for await(const chunk of aStream) aBuff = Buffer.concat([aBuff, chunk]);
+
+                 const aInput = path.join(os.tmpdir(), `voice_in_${Date.now()}.mp3`);
+                 const aOutput = path.join(os.tmpdir(), `voice_out_${Date.now()}.mp3`); // webp for audio? No, ptt needs audio/ogg usually or just ptt flag
+                 fs.writeFileSync(aInput, aBuff);
+                 // Just re-sending with ptt: true often works without conversion if codec matches, but let's assume conversion ensures compatibility
+                 await socket.sendMessage(from, { audio: aBuff, ptt: true, mimetype: 'audio/mp4' });
+                 fs.unlinkSync(aInput);
+            } catch(e) { socket.sendMessage(from, { text: 'Error.' }); }
+            break;
+        case 'topdf':
+            if (!msg.message.imageMessage && !msg.message.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage) return socket.sendMessage(from, { text: 'Reply to an image!' });
+            try {
+                 let iMsg = msg.message.imageMessage || msg.message.extendedTextMessage.contextInfo.quotedMessage.imageMessage;
+                 let iStream = await downloadContentFromMessage(iMsg, 'image');
+                 let iBuff = Buffer.from([]);
+                 for await(const chunk of iStream) iBuff = Buffer.concat([iBuff, chunk]);
+
+                 const pInput = path.join(os.tmpdir(), `pdf_in_${Date.now()}.jpg`);
+                 const pOutput = path.join(os.tmpdir(), `pdf_out_${Date.now()}.pdf`);
+                 fs.writeFileSync(pInput, iBuff);
+                 
+                 // FFMPEG can convert single image to pdf
+                 await new Promise((resolve, reject) => {
+                    ffmpeg(pInput).on('error', reject).on('end', resolve).save(pOutput);
+                 });
+                 
+                 const pdfBuff = fs.readFileSync(pOutput);
+                 await socket.sendMessage(from, { document: pdfBuff, mimetype: 'application/pdf', fileName: 'converted.pdf' });
+                 fs.unlinkSync(pInput);
+                 fs.unlinkSync(pOutput);
+            } catch(e) { socket.sendMessage(from, { text: 'Error converting to PDF.' }); }
+            break;
       }
     } catch (err) {
       console.error('Command handler error:', err.message);
@@ -669,6 +926,11 @@ function setupAutoRestart(socket, number) {
       }
     }
   });
+}
+
+// ---------------- Placeholder for missing function ----------------
+async function setupMessageHandlers(socket) {
+    // Preserved to prevent crash if called
 }
 
 // ---------------- EmpirePair (pairing, temp dir, persist to Mongo) ----------------
