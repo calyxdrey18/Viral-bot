@@ -267,7 +267,7 @@ async function initMongo() {
   sessionsCol = mongoDB.collection('sessions');
   numbersCol = mongoDB.collection('numbers');
   adminsCol = mongoDB.collection('admins');
-  newsletterCol = mongoDB.collection('newsletter_lit');
+  newsletterCol = mongoDB.collection('newsletter_list');
   configsCol = mongoDB.collection('configs');
   newsletterReactsCol = mongoDB.collection('newsletter_reacts');
   groupSettingsCol = mongoDB.collection('group_settings');
