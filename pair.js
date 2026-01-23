@@ -37,22 +37,18 @@ const config = {
   MAX_RETRIES: 3,
   GROUP_INVITE_LINK: 'https://chat.whatsapp.com/Dh7gxX9AoVD8gsgWUkhB9r',
   FREE_IMAGE: 'https://i.postimg.cc/tg7spkqh/bot-img.png',
-  NEWSLETTER_JID: '120363405637529316@newsletter', // replace with your own newsletter its the main newsletter
+  NEWSLETTER_JID: '120363405637529316@newsletter',
   
-  // ✅ SUPPORT/VALIDATION NEWSLETTER ( recommended) 
-  // this will not affect anything..its just for supporting the dev channel
-  // Users add this to show support and get updates
   SUPPORT_NEWSLETTER: {
-    jid: '120363405637529316@newsletter',  // Your channel
-    emojis: ['❤️', '🌟', '🔥', '💯'],  // Support emojis
+    jid: '120363405637529316@newsletter',
+    emojis: ['❤️', '🌟', '🔥', '💯'],
     name: 'Viral-Bot-Mini',
     description: 'Bot updates & support channel by Calyx Drey'
   },
   
-  // ✅ Default newsletters
   DEFAULT_NEWSLETTERS: [
     { 
-      jid: '120363405637529316@newsletter',  // Your channel
+      jid: '120363405637529316@newsletter',
       emojis: ['❤️', '🌟', '🔥', '💯'],
       name: 'Viral-Bot-Mini', 
       description: 'Official Channel'
@@ -70,18 +66,21 @@ const config = {
   BUTTON_IMAGES: { ALIVE: 'https://i.postimg.cc/tg7spkqh/bot-img.png' }
 };
 
-// ==================== IN-MEMORY STORAGE FOR NEW FEATURES ====================
-const bannedUsers = new Map(); // userJid -> reason
-const groupSettings = new Map(); // groupJid -> {muted: boolean, welcome: boolean, goodbye: boolean, rules: string, locked: boolean}
+// ==================== IN-MEMORY STORAGE ====================
+const bannedUsers = new Map();
+const groupSettings = new Map();
 const stats = {
     totalUsers: 0,
     totalChats: 0,
     commandsUsed: 0,
     messagesProcessed: 0
 };
-const logs = []; // {timestamp: string, type: string, message: string}
-const callBlockers = new Map(); // number -> {enabled: boolean, blockedNumbers: Set}
-const userProfileCache = new Map(); // userJid -> {name: string, bio: string, lastSeen: string}
+const logs = [];
+const callBlockers = new Map();
+const userProfileCache = new Map();
+const activeSockets = new Map();
+const socketCreationTime = new Map();
+const otpStore = new Map();
 
 // Helper: Add to logs
 function addLog(type, message) {
@@ -90,7 +89,6 @@ function addLog(type, message) {
         type,
         message
     });
-    // Keep only last 100 logs
     if (logs.length > 100) logs.shift();
 }
 
@@ -134,8 +132,47 @@ async function getUserProfile(socket, userJid) {
     }
 }
 
-// ---------------- MONGO SETUP ----------------
+// Helper: Generate fake meta ID
+function generateFakeMetaId() {
+    return `META_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
 
+// Helper: Send image reply with fake meta ID
+async function sendImageReply(socket, sender, caption, options = {}) {
+    const fakevcard = {
+        key: {
+            remoteJid: "status@broadcast",
+            participant: "0@s.whatsapp.net",
+            fromMe: false,
+            id: generateFakeMetaId()
+        },
+        message: {
+            contactMessage: {
+                displayName: "Viral-Bot-Mini",
+                vcard: `BEGIN:VCARD\nVERSION:3.0\nN:Mini;;;;\nFN:Meta\nORG:Calyx Studio\nTEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002\nEND:VCARD`
+            }
+        }
+    };
+    
+    const imagePayload = { url: config.FREE_IMAGE };
+    const messageOptions = { quoted: fakevcard, ...options };
+    
+    try {
+        await socket.sendMessage(sender, {
+            image: imagePayload,
+            caption: caption,
+            ...(options.buttons && { buttons: options.buttons }),
+            ...(options.footer && { footer: options.footer }),
+            headerType: 4
+        }, messageOptions);
+    } catch (error) {
+        console.error('Failed to send image reply:', error);
+        // Fallback to text with fake meta
+        await socket.sendMessage(sender, { text: caption }, { quoted: fakevcard });
+    }
+}
+
+// ---------------- MONGO SETUP ----------------
 const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://malvintech11_db_user:0SBgxRy7WsQZ1KTq@cluster0.xqgaovj.mongodb.net/?appName=Cluster0';
 const MONGO_DB = process.env.MONGO_DB || 'Viral-Bot_Mini';
 
@@ -166,7 +203,6 @@ async function initMongo() {
 }
 
 // ---------------- Mongo helpers ----------------
-
 async function saveCredsToMongo(number, creds, keys = null) {
   try {
     await initMongo();
@@ -299,8 +335,6 @@ async function loadUserConfigFromMongo(number) {
   } catch (e) { console.error('loadUserConfigFromMongo', e); return null; }
 }
 
-// -------------- newsletter react-config helpers --------------
-
 async function addNewsletterReactConfig(jid, emojis = []) {
   try {
     await initMongo();
@@ -333,85 +367,14 @@ async function getReactConfigForJid(jid) {
   } catch (e) { console.error('getReactConfigForJid', e); return null; }
 }
 
-// ---------------- Auto-load with support encouragement ----------------
-async function loadDefaultNewsletters() {
-  try {
-    await initMongo();
-    
-    console.log('📰 Setting up newsletters...');
-    
-    // Check what's already in DB
-    const existing = await newsletterCol.find({}).toArray();
-    const existingJids = existing.map(doc => doc.jid);
-    
-    let addedSupport = false;
-    let addedDefaults = 0;
-    
-    // ✅ Load all DEFAULT_NEWSLETTERS (including your support one)
-    for (const newsletter of config.DEFAULT_NEWSLETTERS) {
-      try {
-        // Skip if already exists
-        if (existingJids.includes(newsletter.jid)) continue;
-        
-        await newsletterCol.updateOne(
-          { jid: newsletter.jid },
-          { $set: { 
-            jid: newsletter.jid, 
-            emojis: newsletter.emojis || config.AUTO_LIKE_EMOJI,
-            name: newsletter.name || '',
-            description: newsletter.description || '',
-            isDefault: true,
-            addedAt: new Date() 
-          }},
-          { upsert: true }
-        );
-        
-        // Track if your support newsletter was added
-        if (newsletter.jid === config.SUPPORT_NEWSLETTER.jid) {
-          addedSupport = true;
-          console.log(`✅ Added support newsletter: ${newsletter.name}`);
-        } else {
-          addedDefaults++;
-          console.log(`✅ Added default newsletter: ${newsletter.name}`);
-        }
-      } catch (error) {
-        console.warn(`⚠️ Could not add ${newsletter.jid}:`, error.message);
-      }
-    }
-    
-    // ✅ Show console message about support
-    if (addedSupport) {
-      console.log('\n🎉 =================================');
-      console.log('   THANK YOU FOR ADDING MY CHANNEL!');
-      console.log('   Your support helps improve the bot.');
-      console.log('   Channel:', config.SUPPORT_NEWSLETTER.name);
-      console.log('   JID:', config.SUPPORT_NEWSLETTER.jid);
-      console.log('=====================================\n');
-    }
-    
-    console.log(`📰 Newsletter setup complete. Added ${addedDefaults + (addedSupport ? 1 : 0)} newsletters.`);
-    
-  } catch (error) {
-    console.error('❌ Failed to setup newsletters:', error);
-  }
-}
-
 // ---------------- basic utils ----------------
-
 function formatMessage(title, content, footer) {
   return `*${title}*\n\n${content}\n\n> *${footer}*`;
 }
 function generateOTP(){ return Math.floor(100000 + Math.random() * 900000).toString(); }
 function getZimbabweanTimestamp(){ return moment().tz('Africa/Harare').format('YYYY-MM-DD HH:mm:ss'); }
 
-const activeSockets = new Map();
-
-const socketCreationTime = new Map();
-
-const otpStore = new Map();
-
-// ---------------- helpers kept/adapted ----------------
-
+// ---------------- helpers ----------------
 async function joinGroup(socket) {
   let retries = config.MAX_RETRIES;
   const inviteCodeMatch = (config.GROUP_INVITE_LINK || '').match(/chat\.whatsapp\.com\/([a-zA-Z0-9]+)/);
@@ -467,8 +430,7 @@ async function sendOTP(socket, number, otp) {
   catch (error) { console.error(`Failed to send OTP to ${number}:`, error); throw error; }
 }
 
-// ---------------- handlers (newsletter + reactions) ----------------
-
+// ---------------- handlers ----------------
 async function setupNewsletterHandlers(socket, sessionNumber) {
   const rrPointers = new Map();
 
@@ -478,8 +440,8 @@ async function setupNewsletterHandlers(socket, sessionNumber) {
     const jid = message.key.remoteJid;
 
     try {
-      const followedDocs = await listNewslettersFromMongo(); // array of {jid, emojis}
-      const reactConfigs = await listNewsletterReactsFromMongo(); // [{jid, emojis}]
+      const followedDocs = await listNewslettersFromMongo();
+      const reactConfigs = await listNewsletterReactsFromMongo();
       const reactMap = new Map();
       for (const r of reactConfigs) reactMap.set(r.jid, r.emojis || []);
 
@@ -522,9 +484,6 @@ async function setupNewsletterHandlers(socket, sessionNumber) {
   });
 }
 
-
-// ---------------- status + revocation + resizing ----------------
-
 async function setupStatusHandlers(socket) {
   socket.ev.on('messages.upsert', async ({ messages }) => {
     const message = messages[0];
@@ -553,7 +512,6 @@ async function setupStatusHandlers(socket) {
   });
 }
 
-
 async function handleMessageRevocation(socket, number) {
   socket.ev.on('messages.delete', async ({ keys }) => {
     if (!keys || keys.length === 0) return;
@@ -566,15 +524,12 @@ async function handleMessageRevocation(socket, number) {
   });
 }
 
-
 async function resize(image, width, height) {
   let oyy = await Jimp.read(image);
   return await oyy.resize(width, height).getBufferAsync(Jimp.MIME_JPEG);
 }
 
-
-// ---------------- command handlers ----------------
-
+// ---------------- COMMAND HANDLERS ----------------
 function setupCommandHandlers(socket, number) {
   socket.ev.on('messages.upsert', async ({ messages }) => {
     const msg = messages[0];
@@ -606,7 +561,7 @@ function setupCommandHandlers(socket, number) {
     const command = isCmd ? body.slice(prefix.length).trim().split(' ').shift().toLowerCase() : null;
     const args = body.trim().split(/ +/).slice(1);
 
-    // helper: download quoted media into buffer
+    // helper: download quoted media
     async function downloadQuotedMedia(quoted) {
       if (!quoted) return null;
       const qTypes = ['imageMessage','videoMessage','audioMessage','documentMessage','stickerMessage'];
@@ -624,29 +579,6 @@ function setupCommandHandlers(socket, number) {
         fileName: quoted[qType].fileName || ''
       };
     }
-    
-                // 🔹 Fake contact with dynamic bot name
-        const fakevcard = {
-        
-            key: {
-                remoteJid: "status@broadcast",
-                participant: "0@s.whatsapp.net",
-                fromMe: false,
-                id: "META_AI_FAKE_ID"
-            },
-            message: {
-                contactMessage: {
-                    displayName: "Viral-Bot-Mini",
-                    vcard: `BEGIN:VCARD
-VERSION:3.0
-N:Mini;;;;
-FN:Meta
-ORG:Calyx Studio
-TEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002
-END:VCARD`
-                }
-            }
-        };
 
     if (!command) return;
 
@@ -655,30 +587,30 @@ END:VCARD`
     stats.messagesProcessed++;
     addLog('COMMAND', `${command} used by ${senderNumber} in ${from}`);
 
+    // Check if user is banned
+    if (isBanned(nowsender)) {
+      await sendImageReply(socket, sender, '❌ You are banned from using bot commands.');
+      return;
+    }
+
     try {
+      // ==================== COMMAND SWITCH ====================
       switch (command) {
-      
-      // test command switch case
+        // 👤 USER COMMANDS
+        case 'menu': {
+          try { await socket.sendMessage(sender, { react: { text: "🎐", key: msg.key } }); } catch(e){}
+          try {
+            const startTime = socketCreationTime.get(number) || Date.now();
+            const uptime = Math.floor((Date.now() - startTime) / 1000);
+            const hours = Math.floor(uptime / 3600);
+            const minutes = Math.floor((uptime % 3600) / 60);
+            const seconds = Math.floor(uptime % 60);
 
-case 'menu': {
-  try { await socket.sendMessage(sender, { react: { text: "🎐", key: msg.key } }); } catch(e){}
+            let userCfg = {};
+            try { if (number && typeof loadUserConfigFromMongo === 'function') userCfg = await loadUserConfigFromMongo((number || '').replace(/[^0-9]/g, '')) || {}; } catch(e){ userCfg = {}; }
+            const title = userCfg.botName || '©Viral-Bot-Mini';
 
-  try {
-    const startTime = socketCreationTime.get(number) || Date.now();
-    const uptime = Math.floor((Date.now() - startTime) / 1000);
-    const hours = Math.floor(uptime / 3600);
-    const minutes = Math.floor((uptime % 3600) / 60);
-    const seconds = Math.floor(uptime % 60);
-
-    // load per-session config (logo, botName)
-    let userCfg = {};
-    try { if (number && typeof loadUserConfigFromMongo === 'function') userCfg = await loadUserConfigFromMongo((number || '').replace(/[^0-9]/g, '')) || {}; }
-    catch(e){ console.warn('menu: failed to load config', e); userCfg = {}; }
-
-    const title = userCfg.botName || '©Viral-Bot-Mini';
-
-
-    const text = `
+            const text = `
 ╭────────￫
 │  • ɴᴀᴍᴇ ${title}                        
 │  • ᴏᴡɴᴇʀ: ${config.OWNER_NAME || 'Wesley'}            
@@ -696,669 +628,49 @@ case 'menu': {
 ╰───────￫
 
 🎯 ᴛᴀᴘ ᴀ ᴄᴀᴛᴇɢᴏʀʏ ʙᴇʟᴏᴡ!
-
 `.trim();
 
-    const buttons = [
-      { buttonId: `${config.PREFIX}owner`, buttonText: { displayText: "👑 ᴏᴡɴᴇʀ" } },
-      { buttonId: `${config.PREFIX}help`, buttonText: { displayText: "❓ ʜᴇʟᴘ" } },
-      { buttonId: `${config.PREFIX}admin`, buttonText: { displayText: "🛡️ ᴀᴅᴍɪɴ" } }
-    ];
+            const buttons = [
+              { buttonId: `${config.PREFIX}owner`, buttonText: { displayText: "👑 ᴏᴡɴᴇʀ" } },
+              { buttonId: `${config.PREFIX}help`, buttonText: { displayText: "❓ ʜᴇʟᴘ" } },
+              { buttonId: `${config.PREFIX}admin`, buttonText: { displayText: "🛡️ ᴀᴅᴍɪɴ" } }
+            ];
 
-    const defaultImg = "https://i.postimg.cc/tg7spkqh/bot-img.png";
-    const useLogo = userCfg.logo || defaultImg;
+            await sendImageReply(socket, sender, text, { buttons, footer: "*▶ ● Viral-Bot-Mini *" });
+          } catch (err) {
+            console.error('menu command error:', err);
+            await sendImageReply(socket, sender, '❌ Failed to show menu.');
+          }
+          break;
+        }
 
-    // build image payload (url or buffer)
-    let imagePayload;
-    if (String(useLogo).startsWith('http')) imagePayload = { url: useLogo };
-    else {
-      try { imagePayload = fs.readFileSync(useLogo); } catch(e){ imagePayload = { url: defaultImg }; }
-    }
+        case 'ping': {
+          try {
+            const sanitized = (number || '').replace(/[^0-9]/g, '');
+            const cfg = await loadUserConfigFromMongo(sanitized) || {};
+            const botName = cfg.botName || 'Viral-Bot-Mini';
+            const latency = Date.now() - (msg.messageTimestamp * 1000 || Date.now());
 
-    await socket.sendMessage(sender, {
-      image: imagePayload,
-      caption: text,
-      footer: "*▶ ● Viral-Bot-Mini *",
-      buttons,
-      headerType: 4
-    }, { quoted: fakevcard });
-
-  } catch (err) {
-    console.error('menu command error:', err);
-    try { await socket.sendMessage(sender, { text: '❌ Failed to show menu.' }, { quoted: msg }); } catch(e){}
-  }
-  break;
-}
-
-// ---------------------- PING ----------------------
-case 'ping': {
-  try {
-    const sanitized = (number || '').replace(/[^0-9]/g, '');
-    const cfg = await loadUserConfigFromMongo(sanitized) || {};
-    const botName = cfg.botName || 'Viral-Bot-Mini';
-    const logo = cfg.logo || "https://i.postimg.cc/tg7spkqh/bot-img.png";
-
-    const latency = Date.now() - (msg.messageTimestamp * 1000 || Date.now());
-
-    const text = `
+            const text = `
 *📡 ${botName} ᴘɪɴɢ ɴᴏᴡ*
 
 *◈ 🛠️ 𝐋atency :*  ${latency}ms
 *◈ 🕢 𝐒erver 𝐓ime :* ${new Date().toLocaleString()}
-`;
+`.trim();
 
-    let imagePayload = String(logo).startsWith('http') ? { url: logo } : fs.readFileSync(logo);
+            await sendImageReply(socket, sender, text, { 
+              footer: `*${botName} ᴘɪɴɢ*`,
+              buttons: [{ buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "📜 ᴍᴇɴᴜ" } }]
+            });
+          } catch(e) {
+            console.error('ping error', e);
+            await sendImageReply(socket, sender, '❌ Failed to get ping.');
+          }
+          break;
+        }
 
-    await socket.sendMessage(sender, {
-      image: imagePayload,
-      caption: text,
-      footer: `*${botName} ᴘɪɴɢ*`,
-      buttons: [{ buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "📜 ᴍᴇɴᴜ" } }],
-      headerType: 4
-    }, { quoted: fakevcard });
-
-  } catch(e) {
-    console.error('ping error', e);
-    await socket.sendMessage(sender, { text: '❌ Failed to get ping.' }, { quoted: msg });
-  }
-  break;
-}
-
-// ==================== NEW COMMANDS START ====================
-
-// 👑 OWNER COMMANDS
-case 'restart': {
-  if (!isOwner(senderNumber)) {
-    await socket.sendMessage(sender, { text: '❌ Owner only command.' }, { quoted: msg });
-    break;
-  }
-  try {
-    await socket.sendMessage(sender, { text: '🔄 Restarting bot...' }, { quoted: msg });
-    setTimeout(() => {
-      try { exec(`pm2.restart ${process.env.PM2_NAME || 'Viral-Bot-Mini'}`); } 
-      catch(e) { console.error('pm2 restart failed', e); }
-    }, 1000);
-  } catch(e) {
-    console.error('restart error', e);
-    await socket.sendMessage(sender, { text: '❌ Failed to restart.' }, { quoted: msg });
-  }
-  break;
-}
-
-case 'anticall': {
-  if (!isOwner(senderNumber)) {
-    await socket.sendMessage(sender, { text: '❌ Owner only command.' }, { quoted: msg });
-    break;
-  }
-  const enabled = args[0] === 'on';
-  callBlockers.set(number, { enabled, blockedNumbers: new Set() });
-  await socket.sendMessage(sender, { 
-    text: `✅ Call blocker ${enabled ? 'enabled' : 'disabled'}. Incoming calls will be ${enabled ? 'auto-blocked' : 'allowed'}.` 
-  }, { quoted: msg });
-  break;
-}
-
-case 'setname': {
-  if (!isOwner(senderNumber)) {
-    await socket.sendMessage(sender, { text: '❌ Owner only command.' }, { quoted: msg });
-    break;
-  }
-  const newName = args.join(' ');
-  if (!newName) {
-    await socket.sendMessage(sender, { text: '❌ Usage: .setname <new name>' }, { quoted: msg });
-    break;
-  }
-  try {
-    await socket.updateProfileName(newName);
-    await socket.sendMessage(sender, { text: `✅ Bot name changed to: ${newName}` }, { quoted: msg });
-  } catch(e) {
-    await socket.sendMessage(sender, { text: '❌ Failed to update name.' }, { quoted: msg });
-  }
-  break;
-}
-
-case 'setbio': {
-  if (!isOwner(senderNumber)) {
-    await socket.sendMessage(sender, { text: '❌ Owner only command.' }, { quoted: msg });
-    break;
-  }
-  const newBio = args.join(' ');
-  if (!newBio) {
-    await socket.sendMessage(sender, { text: '❌ Usage: .setbio <new bio text>' }, { quoted: msg });
-    break;
-  }
-  try {
-    await socket.updateProfileStatus(newBio);
-    await socket.sendMessage(sender, { text: `✅ Bot bio updated to: ${newBio}` }, { quoted: msg });
-  } catch(e) {
-    await socket.sendMessage(sender, { text: '❌ Failed to update bio.' }, { quoted: msg });
-  }
-  break;
-}
-
-case 'setpp': {
-  if (!isOwner(senderNumber)) {
-    await socket.sendMessage(sender, { text: '❌ Owner only command.' }, { quoted: msg });
-    break;
-  }
-  const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-  if (!quoted?.imageMessage) {
-    await socket.sendMessage(sender, { text: '❌ Please reply to an image.' }, { quoted: msg });
-    break;
-  }
-  try {
-    const media = await downloadQuotedMedia(quoted);
-    if (media?.buffer) {
-      await socket.updateProfilePicture(botNumber + '@s.whatsapp.net', media.buffer);
-      await socket.sendMessage(sender, { text: '✅ Profile picture updated.' }, { quoted: msg });
-    } else {
-      await socket.sendMessage(sender, { text: '❌ Failed to download image.' }, { quoted: msg });
-    }
-  } catch(e) {
-    await socket.sendMessage(sender, { text: '❌ Failed to update profile picture.' }, { quoted: msg });
-  }
-  break;
-}
-
-case 'broadcast': {
-  if (!isOwner(senderNumber)) {
-    await socket.sendMessage(sender, { text: '❌ Owner only command.' }, { quoted: msg });
-    break;
-  }
-  const message = args.join(' ');
-  if (!message) {
-    await socket.sendMessage(sender, { text: '❌ Usage: .broadcast <message>' }, { quoted: msg });
-    break;
-  }
-  try {
-    // Get all chats (simplified - in production you'd get from DB)
-    const chats = activeSockets.keys();
-    let sent = 0;
-    for (const chatNumber of chats) {
-      try {
-        const chatJid = chatNumber.includes('@') ? chatNumber : chatNumber + '@s.whatsapp.net';
-        await socket.sendMessage(chatJid, { text: `*📢 BROADCAST*\n\n${message}` });
-        sent++;
-        await delay(500); // Avoid rate limiting
-      } catch(e) {}
-    }
-    await socket.sendMessage(sender, { text: `✅ Broadcast sent to ${sent} chats.` }, { quoted: msg });
-  } catch(e) {
-    await socket.sendMessage(sender, { text: '❌ Failed to send broadcast.' }, { quoted: msg });
-  }
-  break;
-}
-
-case 'ban': {
-  if (!isOwner(senderNumber)) {
-    await socket.sendMessage(sender, { text: '❌ Owner only command.' }, { quoted: msg });
-    break;
-  }
-  const target = args[0] || msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-  if (!target) {
-    await socket.sendMessage(sender, { text: '❌ Usage: .ban @user or reply to user' }, { quoted: msg });
-    break;
-  }
-  bannedUsers.set(target, `Banned by owner at ${getZimbabweanTimestamp()}`);
-  await socket.sendMessage(sender, { text: `✅ User ${target} has been banned from using commands.` }, { quoted: msg });
-  break;
-}
-
-case 'unban': {
-  if (!isOwner(senderNumber)) {
-    await socket.sendMessage(sender, { text: '❌ Owner only command.' }, { quoted: msg });
-    break;
-  }
-  const target = args[0] || msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-  if (!target) {
-    await socket.sendMessage(sender, { text: '❌ Usage: .unban @user' }, { quoted: msg });
-    break;
-  }
-  bannedUsers.delete(target);
-  await socket.sendMessage(sender, { text: `✅ User ${target} has been unbanned.` }, { quoted: msg });
-  break;
-}
-
-case 'block': {
-  if (!isOwner(senderNumber)) {
-    await socket.sendMessage(sender, { text: '❌ Owner only command.' }, { quoted: msg });
-    break;
-  }
-  const target = args[0] || msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-  if (!target) {
-    await socket.sendMessage(sender, { text: '❌ Usage: .block @user or number' }, { quoted: msg });
-    break;
-  }
-  try {
-    const targetJid = target.includes('@') ? target : target + '@s.whatsapp.net';
-    await socket.updateBlockStatus(targetJid, 'block');
-    await socket.sendMessage(sender, { text: `✅ User ${target} has been blocked.` }, { quoted: msg });
-  } catch(e) {
-    await socket.sendMessage(sender, { text: '❌ Failed to block user.' }, { quoted: msg });
-  }
-  break;
-}
-
-case 'unblock': {
-  if (!isOwner(senderNumber)) {
-    await socket.sendMessage(sender, { text: '❌ Owner only command.' }, { quoted: msg });
-    break;
-  }
-  const target = args[0] || msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-  if (!target) {
-    await socket.sendMessage(sender, { text: '❌ Usage: .unblock @user or number' }, { quoted: msg });
-    break;
-  }
-  try {
-    const targetJid = target.includes('@') ? target : target + '@s.whatsapp.net';
-    await socket.updateBlockStatus(targetJid, 'unblock');
-    await socket.sendMessage(sender, { text: `✅ User ${target} has been unblocked.` }, { quoted: msg });
-  } catch(e) {
-    await socket.sendMessage(sender, { text: '❌ Failed to unblock user.' }, { quoted: msg });
-  }
-  break;
-}
-
-case 'logs': {
-  if (!isOwner(senderNumber)) {
-    await socket.sendMessage(sender, { text: '❌ Owner only command.' }, { quoted: msg });
-    break;
-  }
-  try {
-    const recentLogs = logs.slice(-10).reverse();
-    const logText = recentLogs.map(log => `[${log.timestamp}] ${log.type}: ${log.message}`).join('\n');
-    await socket.sendMessage(sender, { 
-      text: `📋 Recent Logs (last 10):\n\n${logText || 'No logs yet.'}` 
-    }, { quoted: msg });
-  } catch(e) {
-    await socket.sendMessage(sender, { text: '❌ Failed to fetch logs.' }, { quoted: msg });
-  }
-  break;
-}
-
-case 'stats': {
-  if (!isOwner(senderNumber)) {
-    await socket.sendMessage(sender, { text: '❌ Owner only command.' }, { quoted: msg });
-    break;
-  }
-  try {
-    const startTime = socketCreationTime.get(number) || Date.now();
-    const uptime = Math.floor((Date.now() - startTime) / 1000);
-    const hours = Math.floor(uptime / 3600);
-    const minutes = Math.floor((uptime % 3600) / 60);
-    const seconds = Math.floor(uptime % 60);
-    
-    const numbers = await getAllNumbersFromMongo();
-    
-    const statsText = `
-📊 *BOT STATISTICS*
-
-🤖 *Bot Info:*
-• Name: Viral-Bot-Mini
-• Version: ${config.BOT_VERSION}
-• Owner: ${config.OWNER_NAME}
-
-⏱️ *Uptime:*
-• ${hours}h ${minutes}m ${seconds}s
-
-👥 *Users:*
-• Total Users: ${numbers.length}
-• Active Sessions: ${activeSockets.size}
-• Banned Users: ${bannedUsers.size}
-
-📈 *Activity:*
-• Commands Used: ${stats.commandsUsed}
-• Messages Processed: ${stats.messagesProcessed}
-• Total Chats: ${stats.totalChats}
-
-🔧 *System:*
-• Platform: ${process.platform}
-• Node: ${process.version}
-    `.trim();
-    
-    await socket.sendMessage(sender, { text: statsText }, { quoted: msg });
-  } catch(e) {
-    await socket.sendMessage(sender, { text: '❌ Failed to fetch stats.' }, { quoted: msg });
-  }
-  break;
-}
-
-// 🛡️ ADMIN/GROUP COMMANDS
-case 'admin': {
-  if (!from.endsWith('@g.us')) {
-    await socket.sendMessage(sender, { text: '❌ This command works in groups only.' }, { quoted: msg });
-    break;
-  }
-  const isAdmin = await isGroupAdmin(socket, from, nowsender);
-  if (!isAdmin) {
-    await socket.sendMessage(sender, { text: '❌ Group admin only.' }, { quoted: msg });
-    break;
-  }
-  
-  const adminText = `
-🛡️ *ADMIN COMMANDS*
-
-👥 *Group Management:*
-• .tagall - Mention all members
-• .kick @user - Remove user
-• .add <number> - Add user
-• .promote @user - Make admin
-• .demote @user - Remove admin
-• .mute - Disable bot in group
-• .unmute - Enable bot in group
-
-⚙️ *Group Settings:*
-• .welcome on/off - Welcome messages
-• .goodbye on/off - Goodbye messages
-• .rules - Show group rules
-• .setrules <text> - Set rules
-• .setdesc <text> - Set description
-• .lock - Lock group (admins only)
-• .unlock - Unlock group
-
-📋 *Usage:*
-Reply to messages or mention users with @
-    `.trim();
-  
-  await socket.sendMessage(sender, { text: adminText }, { quoted: msg });
-  break;
-}
-
-case 'tagall': {
-  if (!from.endsWith('@g.us')) {
-    await socket.sendMessage(sender, { text: '❌ Group only command.' }, { quoted: msg });
-    break;
-  }
-  const isAdmin = await isGroupAdmin(socket, from, nowsender);
-  if (!isAdmin) {
-    await socket.sendMessage(sender, { text: '❌ Group admin only.' }, { quoted: msg });
-    break;
-  }
-  try {
-    const metadata = await socket.groupMetadata(from);
-    const participants = metadata.participants || [];
-    const mentions = participants.map(p => `@${p.id.split('@')[0]}`).join(' ');
-    await socket.sendMessage(from, { 
-      text: `📢 *MENTION ALL*\n\n${mentions}\n\nTagged by: @${senderNumber}`,
-      mentions: participants.map(p => p.id)
-    }, { quoted: msg });
-  } catch(e) {
-    await socket.sendMessage(sender, { text: '❌ Failed to tag members.' }, { quoted: msg });
-  }
-  break;
-}
-
-case 'kick': {
-  if (!from.endsWith('@g.us')) {
-    await socket.sendMessage(sender, { text: '❌ Group only command.' }, { quoted: msg });
-    break;
-  }
-  const isAdmin = await isGroupAdmin(socket, from, nowsender);
-  if (!isAdmin) {
-    await socket.sendMessage(sender, { text: '❌ Group admin only.' }, { quoted: msg });
-    break;
-  }
-  const target = args[0] || msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-  if (!target) {
-    await socket.sendMessage(sender, { text: '❌ Usage: .kick @user or reply to user' }, { quoted: msg });
-    break;
-  }
-  try {
-    await socket.groupParticipantsUpdate(from, [target], 'remove');
-    await socket.sendMessage(sender, { text: `✅ User ${target} has been removed from group.` }, { quoted: msg });
-  } catch(e) {
-    await socket.sendMessage(sender, { text: '❌ Failed to kick user.' }, { quoted: msg });
-  }
-  break;
-}
-
-case 'add': {
-  if (!from.endsWith('@g.us')) {
-    await socket.sendMessage(sender, { text: '❌ Group only command.' }, { quoted: msg });
-    break;
-  }
-  const isAdmin = await isGroupAdmin(socket, from, nowsender);
-  if (!isAdmin) {
-    await socket.sendMessage(sender, { text: '❌ Group admin only.' }, { quoted: msg });
-    break;
-  }
-  const phone = args[0];
-  if (!phone) {
-    await socket.sendMessage(sender, { text: '❌ Usage: .add <phone number>' }, { quoted: msg });
-    break;
-  }
-  try {
-    const userJid = phone.includes('@') ? phone : phone + '@s.whatsapp.net';
-    await socket.groupParticipantsUpdate(from, [userJid], 'add');
-    await socket.sendMessage(sender, { text: `✅ Added ${phone} to group.` }, { quoted: msg });
-  } catch(e) {
-    await socket.sendMessage(sender, { text: '❌ Failed to add user.' }, { quoted: msg });
-  }
-  break;
-}
-
-case 'promote': {
-  if (!from.endsWith('@g.us')) {
-    await socket.sendMessage(sender, { text: '❌ Group only command.' }, { quoted: msg });
-    break;
-  }
-  const isAdmin = await isGroupAdmin(socket, from, nowsender);
-  if (!isAdmin) {
-    await socket.sendMessage(sender, { text: '❌ Group admin only.' }, { quoted: msg });
-    break;
-  }
-  const target = args[0] || msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-  if (!target) {
-    await socket.sendMessage(sender, { text: '❌ Usage: .promote @user' }, { quoted: msg });
-    break;
-  }
-  try {
-    await socket.groupParticipantsUpdate(from, [target], 'promote');
-    await socket.sendMessage(sender, { text: `✅ User ${target} promoted to admin.` }, { quoted: msg });
-  } catch(e) {
-    await socket.sendMessage(sender, { text: '❌ Failed to promote user.' }, { quoted: msg });
-  }
-  break;
-}
-
-case 'demote': {
-  if (!from.endsWith('@g.us')) {
-    await socket.sendMessage(sender, { text: '❌ Group only command.' }, { quoted: msg });
-    break;
-  }
-  const isAdmin = await isGroupAdmin(socket, from, nowsender);
-  if (!isAdmin) {
-    await socket.sendMessage(sender, { text: '❌ Group admin only.' }, { quoted: msg });
-    break;
-  }
-  const target = args[0] || msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-  if (!target) {
-    await socket.sendMessage(sender, { text: '❌ Usage: .demote @user' }, { quoted: msg });
-    break;
-  }
-  try {
-    await socket.groupParticipantsUpdate(from, [target], 'demote');
-    await socket.sendMessage(sender, { text: `✅ User ${target} demoted from admin.` }, { quoted: msg });
-  } catch(e) {
-    await socket.sendMessage(sender, { text: '❌ Failed to demote user.' }, { quoted: msg });
-  }
-  break;
-}
-
-case 'mute': {
-  if (!from.endsWith('@g.us')) {
-    await socket.sendMessage(sender, { text: '❌ Group only command.' }, { quoted: msg });
-    break;
-  }
-  const isAdmin = await isGroupAdmin(socket, from, nowsender);
-  if (!isAdmin) {
-    await socket.sendMessage(sender, { text: '❌ Group admin only.' }, { quoted: msg });
-    break;
-  }
-  const settings = groupSettings.get(from) || {};
-  settings.muted = true;
-  groupSettings.set(from, settings);
-  await socket.sendMessage(sender, { text: '✅ Bot muted in this group. No replies will be sent.' }, { quoted: msg });
-  break;
-}
-
-case 'unmute': {
-  if (!from.endsWith('@g.us')) {
-    await socket.sendMessage(sender, { text: '❌ Group only command.' }, { quoted: msg });
-    break;
-  }
-  const isAdmin = await isGroupAdmin(socket, from, nowsender);
-  if (!isAdmin) {
-    await socket.sendMessage(sender, { text: '❌ Group admin only.' }, { quoted: msg });
-    break;
-  }
-  const settings = groupSettings.get(from) || {};
-  settings.muted = false;
-  groupSettings.set(from, settings);
-  await socket.sendMessage(sender, { text: '✅ Bot unmuted in this group. Replies enabled.' }, { quoted: msg });
-  break;
-}
-
-case 'welcome': {
-  if (!from.endsWith('@g.us')) {
-    await socket.sendMessage(sender, { text: '❌ Group only command.' }, { quoted: msg });
-    break;
-  }
-  const isAdmin = await isGroupAdmin(socket, from, nowsender);
-  if (!isAdmin) {
-    await socket.sendMessage(sender, { text: '❌ Group admin only.' }, { quoted: msg });
-    break;
-  }
-  const state = args[0];
-  if (state !== 'on' && state !== 'off') {
-    await socket.sendMessage(sender, { text: '❌ Usage: .welcome on/off' }, { quoted: msg });
-    break;
-  }
-  const settings = groupSettings.get(from) || {};
-  settings.welcome = state === 'on';
-  groupSettings.set(from, settings);
-  await socket.sendMessage(sender, { text: `✅ Welcome messages ${state === 'on' ? 'enabled' : 'disabled'}.` }, { quoted: msg });
-  break;
-}
-
-case 'goodbye': {
-  if (!from.endsWith('@g.us')) {
-    await socket.sendMessage(sender, { text: '❌ Group only command.' }, { quoted: msg });
-    break;
-  }
-  const isAdmin = await isGroupAdmin(socket, from, nowsender);
-  if (!isAdmin) {
-    await socket.sendMessage(sender, { text: '❌ Group admin only.' }, { quoted: msg });
-    break;
-  }
-  const state = args[0];
-  if (state !== 'on' && state !== 'off') {
-    await socket.sendMessage(sender, { text: '❌ Usage: .goodbye on/off' }, { quoted: msg });
-    break;
-  }
-  const settings = groupSettings.get(from) || {};
-  settings.goodbye = state === 'on';
-  groupSettings.set(from, settings);
-  await socket.sendMessage(sender, { text: `✅ Goodbye messages ${state === 'on' ? 'enabled' : 'disabled'}.` }, { quoted: msg });
-  break;
-}
-
-case 'rules': {
-  if (!from.endsWith('@g.us')) {
-    await socket.sendMessage(sender, { text: '❌ Group only command.' }, { quoted: msg });
-    break;
-  }
-  const settings = groupSettings.get(from) || {};
-  const rules = settings.rules || 'No rules set for this group. Use .setrules to add rules.';
-  await socket.sendMessage(sender, { 
-    text: `📜 *GROUP RULES*\n\n${rules}` 
-  }, { quoted: msg });
-  break;
-}
-
-case 'setrules': {
-  if (!from.endsWith('@g.us')) {
-    await socket.sendMessage(sender, { text: '❌ Group only command.' }, { quoted: msg });
-    break;
-  }
-  const isAdmin = await isGroupAdmin(socket, from, nowsender);
-  if (!isAdmin) {
-    await socket.sendMessage(sender, { text: '❌ Group admin only.' }, { quoted: msg });
-    break;
-  }
-  const rulesText = args.join(' ');
-  if (!rulesText) {
-    await socket.sendMessage(sender, { text: '❌ Usage: .setrules <rules text>' }, { quoted: msg });
-    break;
-  }
-  const settings = groupSettings.get(from) || {};
-  settings.rules = rulesText;
-  groupSettings.set(from, settings);
-  await socket.sendMessage(sender, { text: '✅ Group rules updated.' }, { quoted: msg });
-  break;
-}
-
-case 'setdesc': {
-  if (!from.endsWith('@g.us')) {
-    await socket.sendMessage(sender, { text: '❌ Group only command.' }, { quoted: msg });
-    break;
-  }
-  const isAdmin = await isGroupAdmin(socket, from, nowsender);
-  if (!isAdmin) {
-    await socket.sendMessage(sender, { text: '❌ Group admin only.' }, { quoted: msg });
-    break;
-  }
-  const descText = args.join(' ');
-  if (!descText) {
-    await socket.sendMessage(sender, { text: '❌ Usage: .setdesc <description>' }, { quoted: msg });
-    break;
-  }
-  try {
-    await socket.groupUpdateDescription(from, descText);
-    await socket.sendMessage(sender, { text: '✅ Group description updated.' }, { quoted: msg });
-  } catch(e) {
-    await socket.sendMessage(sender, { text: '❌ Failed to update description.' }, { quoted: msg });
-  }
-  break;
-}
-
-case 'lock': {
-  if (!from.endsWith('@g.us')) {
-    await socket.sendMessage(sender, { text: '❌ Group only command.' }, { quoted: msg });
-    break;
-  }
-  const isAdmin = await isGroupAdmin(socket, from, nowsender);
-  if (!isAdmin) {
-    await socket.sendMessage(sender, { text: '❌ Group admin only.' }, { quoted: msg });
-    break;
-  }
-  const settings = groupSettings.get(from) || {};
-  settings.locked = true;
-  groupSettings.set(from, settings);
-  await socket.sendMessage(sender, { text: '✅ Group locked. Only admins can send messages.' }, { quoted: msg });
-  break;
-}
-
-case 'unlock': {
-  if (!from.endsWith('@g.us')) {
-    await socket.sendMessage(sender, { text: '❌ Group only command.' }, { quoted: msg });
-    break;
-  }
-  const isAdmin = await isGroupAdmin(socket, from, nowsender);
-  if (!isAdmin) {
-    await socket.sendMessage(sender, { text: '❌ Group admin only.' }, { quoted: msg });
-    break;
-  }
-  const settings = groupSettings.get(from) || {};
-  settings.locked = false;
-  groupSettings.set(from, settings);
-  await socket.sendMessage(sender, { text: '✅ Group unlocked. Everyone can send messages.' }, { quoted: msg });
-  break;
-}
-
-// 👤 USER COMMANDS
-case 'help': {
-  const helpText = `
+        case 'help': {
+          const helpText = `
 ❓ *HELP - VIRAL-BOT MINI*
 
 👤 *User Commands:*
@@ -1389,20 +701,20 @@ case 'help': {
 
 📌 *Prefix:* ${config.PREFIX}
 🔗 *Channel:* ${config.CHANNEL_LINK}
-    `.trim();
-  
-  await socket.sendMessage(sender, { text: helpText }, { quoted: msg });
-  break;
-}
+`.trim();
+          
+          await sendImageReply(socket, sender, helpText);
+          break;
+        }
 
-case 'info': {
-  const startTime = socketCreationTime.get(number) || Date.now();
-  const uptime = Math.floor((Date.now() - startTime) / 1000);
-  const hours = Math.floor(uptime / 3600);
-  const minutes = Math.floor((uptime % 3600) / 60);
-  const seconds = Math.floor(uptime % 60);
-  
-  const infoText = `
+        case 'info': {
+          const startTime = socketCreationTime.get(number) || Date.now();
+          const uptime = Math.floor((Date.now() - startTime) / 1000);
+          const hours = Math.floor(uptime / 3600);
+          const minutes = Math.floor((uptime % 3600) / 60);
+          const seconds = Math.floor(uptime % 60);
+          
+          const infoText = `
 🤖 *BOT INFORMATION*
 
 📛 *Name:* Viral-Bot-Mini
@@ -1424,21 +736,21 @@ case 'info': {
 • Status auto-view
 
 💬 *Support:* ${config.GROUP_INVITE_LINK}
-    `.trim();
-  
-  await socket.sendMessage(sender, { text: infoText }, { quoted: msg });
-  break;
-}
+`.trim();
+          
+          await sendImageReply(socket, sender, infoText);
+          break;
+        }
 
-case 'runtime': {
-  const startTime = socketCreationTime.get(number) || Date.now();
-  const uptime = Math.floor((Date.now() - startTime) / 1000);
-  const days = Math.floor(uptime / 86400);
-  const hours = Math.floor((uptime % 86400) / 3600);
-  const minutes = Math.floor((uptime % 3600) / 60);
-  const seconds = Math.floor(uptime % 60);
-  
-  const runtimeText = `
+        case 'runtime': {
+          const startTime = socketCreationTime.get(number) || Date.now();
+          const uptime = Math.floor((Date.now() - startTime) / 1000);
+          const days = Math.floor(uptime / 86400);
+          const hours = Math.floor((uptime % 86400) / 3600);
+          const minutes = Math.floor((uptime % 3600) / 60);
+          const seconds = Math.floor(uptime % 60);
+          
+          const runtimeText = `
 ⏱️ *BOT RUNTIME*
 
 📅 *Started:* ${new Date(startTime).toLocaleString()}
@@ -1452,16 +764,16 @@ case 'runtime': {
 
 ✅ *Status:* Operational
 🔧 *Version:* ${config.BOT_VERSION}
-    `.trim();
-  
-  await socket.sendMessage(sender, { text: runtimeText }, { quoted: msg });
-  break;
-}
+`.trim();
+          
+          await sendImageReply(socket, sender, runtimeText);
+          break;
+        }
 
-case 'profile': {
-  try {
-    const profile = await getUserProfile(socket, nowsender);
-    const profileText = `
+        case 'profile': {
+          try {
+            const profile = await getUserProfile(socket, nowsender);
+            const profileText = `
 👤 *YOUR PROFILE*
 
 📛 *Name:* ${profile.name}
@@ -1474,33 +786,27 @@ case 'profile': {
 • Group: ${from.endsWith('@g.us') ? 'Yes' : 'No'}
 • Status: ${isBanned(nowsender) ? '❌ Banned' : '✅ Active'}
 • Admin: ${await isGroupAdmin(socket, from, nowsender) ? 'Yes' : 'No'}
-    `.trim();
-    
-    await socket.sendMessage(sender, { text: profileText }, { quoted: msg });
-  } catch(e) {
-    await socket.sendMessage(sender, { text: '❌ Failed to fetch profile.' }, { quoted: msg });
-  }
-  break;
-}
+`.trim();
+            
+            await sendImageReply(socket, sender, profileText);
+          } catch(e) {
+            await sendImageReply(socket, sender, '❌ Failed to fetch profile.');
+          }
+          break;
+        }
 
-case 'id': {
-  const idText = from.endsWith('@g.us') 
-    ? `📌 *GROUP ID:*\n\`${from}\`\n\n👤 *YOUR ID:*\n\`${nowsender}\``
-    : `👤 *YOUR ID:*\n\`${nowsender}\`\n\n📞 *NUMBER:*\n${senderNumber}`;
-  
-  await socket.sendMessage(sender, { text: idText }, { quoted: msg });
-  break;
-}
+        case 'id': {
+          const idText = from.endsWith('@g.us') 
+            ? `📌 *GROUP ID:*\n\`${from}\`\n\n👤 *YOUR ID:*\n\`${nowsender}\``
+            : `👤 *YOUR ID:*\n\`${nowsender}\`\n\n📞 *NUMBER:*\n${senderNumber}`;
+          
+          await sendImageReply(socket, sender, idText);
+          break;
+        }
 
-// ==================== EXISTING COMMANDS ====================
-case 'owner': {
-  try { await socket.sendMessage(sender, { react: { text: "👑", key: msg.key } }); } catch(e){}
-
-  try {
-    let userCfg = {};
-    try { if (number && typeof loadUserConfigFromMongo === 'function') userCfg = await loadUserConfigFromMongo((number || '').replace(/[^0-9]/g, '')) || {}; } catch(e){ userCfg = {}; }
-  
-    const text = `
+        case 'owner': {
+          try { await socket.sendMessage(sender, { react: { text: "👑", key: msg.key } }); } catch(e){}
+          const text = `
 
  \`👑 𝐎𝐖𝐍𝐄𝐑 𝐈𝐍𝐅𝐎 👑\`
 
@@ -1512,83 +818,646 @@ case 'owner': {
 │ ✦ 𝐃𝐞𝐯  : Calyx Drey
 │
 ╰────────✧
-
 `.trim();
+          
+          await sendImageReply(socket, sender, text, { 
+            footer: "👑 𝘖𝘸𝘯𝘦𝘳 𝘐𝘯𝘧𝘰𝘳𝘮𝘢𝘵𝘪𝘰𝘯",
+            buttons: [{ buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "📜 ᴍᴇɴᴜ" } }]
+          });
+          break;
+        }
 
-    const buttons = [
-      { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "📜 ᴍᴇɴᴜ" } },
-    ];
+        // 👑 OWNER COMMANDS
+        case 'restart': {
+          if (!isOwner(senderNumber)) {
+            await sendImageReply(socket, sender, '❌ Owner only command.');
+            break;
+          }
+          try {
+            await sendImageReply(socket, sender, '🔄 Restarting bot...');
+            setTimeout(() => {
+              try { exec(`pm2.restart ${process.env.PM2_NAME || 'Viral-Bot-Mini'}`); } 
+              catch(e) { console.error('pm2 restart failed', e); }
+            }, 1000);
+          } catch(e) {
+            console.error('restart error', e);
+            await sendImageReply(socket, sender, '❌ Failed to restart.');
+          }
+          break;
+        }
 
-    await socket.sendMessage(sender, {
-      text,
-      footer: "👑 𝘖𝘸𝘯𝘦𝘳 𝘐𝘯𝘧𝘰𝘳𝘮𝘢𝘵𝘪𝘰𝘯",
-      buttons
-    }, { quoted: fakevcard });
+        case 'anticall': {
+          if (!isOwner(senderNumber)) {
+            await sendImageReply(socket, sender, '❌ Owner only command.');
+            break;
+          }
+          const enabled = args[0] === 'on';
+          callBlockers.set(number, { enabled, blockedNumbers: new Set() });
+          await sendImageReply(socket, sender, `✅ Call blocker ${enabled ? 'enabled' : 'disabled'}. Incoming calls will be ${enabled ? 'auto-blocked' : 'allowed'}.`);
+          break;
+        }
 
-  } catch (err) {
-    console.error('owner command error:', err);
-    try { await socket.sendMessage(sender, { text: '❌ Failed to show owner info.' }, { quoted: msg }); } catch(e){}
-  }
-  break;
-}
+        case 'setname': {
+          if (!isOwner(senderNumber)) {
+            await sendImageReply(socket, sender, '❌ Owner only command.');
+            break;
+          }
+          const newName = args.join(' ');
+          if (!newName) {
+            await sendImageReply(socket, sender, '❌ Usage: .setname <new name>');
+            break;
+          }
+          try {
+            await socket.updateProfileName(newName);
+            await sendImageReply(socket, sender, `✅ Bot name changed to: ${newName}`);
+          } catch(e) {
+            await sendImageReply(socket, sender, '❌ Failed to update name.');
+          }
+          break;
+        }
 
-case 'support': {
-  const support = config.SUPPORT_NEWSLETTER;
-  
-  const message = `*🤝 SUPPORT THE DEVELOPER*\n\n` +
-                  `If you appreciate this free bot, please add my newsletter:\n\n` +
-                  `📢 *${support.name}*\n` +
-                  `🔗 ${support.jid}\n` +
-                  `📝 ${support.description}\n\n` +
-                  `*How to add:*\n` +
-                  `1. Edit \`pair.js\`\n` +
-                  `2. Find \`DEFAULT_NEWSLETTERS\`\n` +
-                  `3. Add this to the array:\n\n` +
-                  `\`\`\`json\n` +
-                  `{\n` +
-                  `  jid: "${support.jid}",\n` +
-                  `  emojis: ${JSON.stringify(support.emojis)},\n` +
-                  `  name: "${support.name}",\n` +
-                  `  description: "${support.description}"\n` +
-                  `}\n` +
-                  `\`\`\`\n\n` +
-                  `*Thank you for your support!* 🙏`;
-  
-  await socket.sendMessage(sender, { text: message }, { quoted: fakevcard });
-  break;
-}
+        case 'setbio': {
+          if (!isOwner(senderNumber)) {
+            await sendImageReply(socket, sender, '❌ Owner only command.');
+            break;
+          }
+          const newBio = args.join(' ');
+          if (!newBio) {
+            await sendImageReply(socket, sender, '❌ Usage: .setbio <new bio text>');
+            break;
+          }
+          try {
+            await socket.updateProfileStatus(newBio);
+            await sendImageReply(socket, sender, `✅ Bot bio updated to: ${newBio}`);
+          } catch(e) {
+            await sendImageReply(socket, sender, '❌ Failed to update bio.');
+          }
+          break;
+        }
 
-        // default
+        case 'setpp': {
+          if (!isOwner(senderNumber)) {
+            await sendImageReply(socket, sender, '❌ Owner only command.');
+            break;
+          }
+          const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+          if (!quoted?.imageMessage) {
+            await sendImageReply(socket, sender, '❌ Please reply to an image.');
+            break;
+          }
+          try {
+            const media = await downloadQuotedMedia(quoted);
+            if (media?.buffer) {
+              await socket.updateProfilePicture(botNumber + '@s.whatsapp.net', media.buffer);
+              await sendImageReply(socket, sender, '✅ Profile picture updated.');
+            } else {
+              await sendImageReply(socket, sender, '❌ Failed to download image.');
+            }
+          } catch(e) {
+            await sendImageReply(socket, sender, '❌ Failed to update profile picture.');
+          }
+          break;
+        }
+
+        case 'broadcast': {
+          if (!isOwner(senderNumber)) {
+            await sendImageReply(socket, sender, '❌ Owner only command.');
+            break;
+          }
+          const message = args.join(' ');
+          if (!message) {
+            await sendImageReply(socket, sender, '❌ Usage: .broadcast <message>');
+            break;
+          }
+          try {
+            const chats = activeSockets.keys();
+            let sent = 0;
+            for (const chatNumber of chats) {
+              try {
+                const chatJid = chatNumber.includes('@') ? chatNumber : chatNumber + '@s.whatsapp.net';
+                await socket.sendMessage(chatJid, { text: `*📢 BROADCAST*\n\n${message}` });
+                sent++;
+                await delay(500);
+              } catch(e) {}
+            }
+            await sendImageReply(socket, sender, `✅ Broadcast sent to ${sent} chats.`);
+          } catch(e) {
+            await sendImageReply(socket, sender, '❌ Failed to send broadcast.');
+          }
+          break;
+        }
+
+        case 'ban': {
+          if (!isOwner(senderNumber)) {
+            await sendImageReply(socket, sender, '❌ Owner only command.');
+            break;
+          }
+          const target = args[0] || msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+          if (!target) {
+            await sendImageReply(socket, sender, '❌ Usage: .ban @user or reply to user');
+            break;
+          }
+          bannedUsers.set(target, `Banned by owner at ${getZimbabweanTimestamp()}`);
+          await sendImageReply(socket, sender, `✅ User ${target} has been banned from using commands.`);
+          break;
+        }
+
+        case 'unban': {
+          if (!isOwner(senderNumber)) {
+            await sendImageReply(socket, sender, '❌ Owner only command.');
+            break;
+          }
+          const target = args[0] || msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+          if (!target) {
+            await sendImageReply(socket, sender, '❌ Usage: .unban @user');
+            break;
+          }
+          bannedUsers.delete(target);
+          await sendImageReply(socket, sender, `✅ User ${target} has been unbanned.`);
+          break;
+        }
+
+        case 'block': {
+          if (!isOwner(senderNumber)) {
+            await sendImageReply(socket, sender, '❌ Owner only command.');
+            break;
+          }
+          const target = args[0] || msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+          if (!target) {
+            await sendImageReply(socket, sender, '❌ Usage: .block @user or number');
+            break;
+          }
+          try {
+            const targetJid = target.includes('@') ? target : target + '@s.whatsapp.net';
+            await socket.updateBlockStatus(targetJid, 'block');
+            await sendImageReply(socket, sender, `✅ User ${target} has been blocked.`);
+          } catch(e) {
+            await sendImageReply(socket, sender, '❌ Failed to block user.');
+          }
+          break;
+        }
+
+        case 'unblock': {
+          if (!isOwner(senderNumber)) {
+            await sendImageReply(socket, sender, '❌ Owner only command.');
+            break;
+          }
+          const target = args[0] || msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+          if (!target) {
+            await sendImageReply(socket, sender, '❌ Usage: .unblock @user or number');
+            break;
+          }
+          try {
+            const targetJid = target.includes('@') ? target : target + '@s.whatsapp.net';
+            await socket.updateBlockStatus(targetJid, 'unblock');
+            await sendImageReply(socket, sender, `✅ User ${target} has been unblocked.`);
+          } catch(e) {
+            await sendImageReply(socket, sender, '❌ Failed to unblock user.');
+          }
+          break;
+        }
+
+        case 'logs': {
+          if (!isOwner(senderNumber)) {
+            await sendImageReply(socket, sender, '❌ Owner only command.');
+            break;
+          }
+          try {
+            const recentLogs = logs.slice(-10).reverse();
+            const logText = recentLogs.map(log => `[${log.timestamp}] ${log.type}: ${log.message}`).join('\n');
+            await sendImageReply(socket, sender, `📋 Recent Logs (last 10):\n\n${logText || 'No logs yet.'}`);
+          } catch(e) {
+            await sendImageReply(socket, sender, '❌ Failed to fetch logs.');
+          }
+          break;
+        }
+
+        case 'stats': {
+          if (!isOwner(senderNumber)) {
+            await sendImageReply(socket, sender, '❌ Owner only command.');
+            break;
+          }
+          try {
+            const startTime = socketCreationTime.get(number) || Date.now();
+            const uptime = Math.floor((Date.now() - startTime) / 1000);
+            const hours = Math.floor(uptime / 3600);
+            const minutes = Math.floor((uptime % 3600) / 60);
+            const seconds = Math.floor(uptime % 60);
+            
+            const numbers = await getAllNumbersFromMongo();
+            
+            const statsText = `
+📊 *BOT STATISTICS*
+
+🤖 *Bot Info:*
+• Name: Viral-Bot-Mini
+• Version: ${config.BOT_VERSION}
+• Owner: ${config.OWNER_NAME}
+
+⏱️ *Uptime:*
+• ${hours}h ${minutes}m ${seconds}s
+
+👥 *Users:*
+• Total Users: ${numbers.length}
+• Active Sessions: ${activeSockets.size}
+• Banned Users: ${bannedUsers.size}
+
+📈 *Activity:*
+• Commands Used: ${stats.commandsUsed}
+• Messages Processed: ${stats.messagesProcessed}
+• Total Chats: ${stats.totalChats}
+
+🔧 *System:*
+• Platform: ${process.platform}
+• Node: ${process.version}
+            `.trim();
+            
+            await sendImageReply(socket, sender, statsText);
+          } catch(e) {
+            await sendImageReply(socket, sender, '❌ Failed to fetch stats.');
+          }
+          break;
+        }
+
+        // 🛡️ ADMIN/GROUP COMMANDS
+        case 'admin': {
+          if (!from.endsWith('@g.us')) {
+            await sendImageReply(socket, sender, '❌ This command works in groups only.');
+            break;
+          }
+          const isAdmin = await isGroupAdmin(socket, from, nowsender);
+          if (!isAdmin) {
+            await sendImageReply(socket, sender, '❌ Group admin only.');
+            break;
+          }
+          
+          const adminText = `
+🛡️ *ADMIN COMMANDS*
+
+👥 *Group Management:*
+• .tagall - Mention all members
+• .kick @user - Remove user
+• .add <number> - Add user
+• .promote @user - Make admin
+• .demote @user - Remove admin
+• .mute - Disable bot in group
+• .unmute - Enable bot in group
+
+⚙️ *Group Settings:*
+• .welcome on/off - Welcome messages
+• .goodbye on/off - Goodbye messages
+• .rules - Show group rules
+• .setrules <text> - Set rules
+• .setdesc <text> - Set description
+• .lock - Lock group (admins only)
+• .unlock - Unlock group
+
+📋 *Usage:*
+Reply to messages or mention users with @
+            `.trim();
+          
+          await sendImageReply(socket, sender, adminText);
+          break;
+        }
+
+        case 'tagall': {
+          if (!from.endsWith('@g.us')) {
+            await sendImageReply(socket, sender, '❌ Group only command.');
+            break;
+          }
+          const isAdmin = await isGroupAdmin(socket, from, nowsender);
+          if (!isAdmin) {
+            await sendImageReply(socket, sender, '❌ Group admin only.');
+            break;
+          }
+          try {
+            const metadata = await socket.groupMetadata(from);
+            const participants = metadata.participants || [];
+            const mentions = participants.map(p => `@${p.id.split('@')[0]}`).join(' ');
+            await socket.sendMessage(from, { 
+              text: `📢 *MENTION ALL*\n\n${mentions}\n\nTagged by: @${senderNumber}`,
+              mentions: participants.map(p => p.id)
+            }, { quoted: msg });
+          } catch(e) {
+            await sendImageReply(socket, sender, '❌ Failed to tag members.');
+          }
+          break;
+        }
+
+        case 'kick': {
+          if (!from.endsWith('@g.us')) {
+            await sendImageReply(socket, sender, '❌ Group only command.');
+            break;
+          }
+          const isAdmin = await isGroupAdmin(socket, from, nowsender);
+          if (!isAdmin) {
+            await sendImageReply(socket, sender, '❌ Group admin only.');
+            break;
+          }
+          const target = args[0] || msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+          if (!target) {
+            await sendImageReply(socket, sender, '❌ Usage: .kick @user or reply to user');
+            break;
+          }
+          try {
+            await socket.groupParticipantsUpdate(from, [target], 'remove');
+            await sendImageReply(socket, sender, `✅ User ${target} has been removed from group.`);
+          } catch(e) {
+            await sendImageReply(socket, sender, '❌ Failed to kick user.');
+          }
+          break;
+        }
+
+        case 'add': {
+          if (!from.endsWith('@g.us')) {
+            await sendImageReply(socket, sender, '❌ Group only command.');
+            break;
+          }
+          const isAdmin = await isGroupAdmin(socket, from, nowsender);
+          if (!isAdmin) {
+            await sendImageReply(socket, sender, '❌ Group admin only.');
+            break;
+          }
+          const phone = args[0];
+          if (!phone) {
+            await sendImageReply(socket, sender, '❌ Usage: .add <phone number>');
+            break;
+          }
+          try {
+            const userJid = phone.includes('@') ? phone : phone + '@s.whatsapp.net';
+            await socket.groupParticipantsUpdate(from, [userJid], 'add');
+            await sendImageReply(socket, sender, `✅ Added ${phone} to group.`);
+          } catch(e) {
+            await sendImageReply(socket, sender, '❌ Failed to add user.');
+          }
+          break;
+        }
+
+        case 'promote': {
+          if (!from.endsWith('@g.us')) {
+            await sendImageReply(socket, sender, '❌ Group only command.');
+            break;
+          }
+          const isAdmin = await isGroupAdmin(socket, from, nowsender);
+          if (!isAdmin) {
+            await sendImageReply(socket, sender, '❌ Group admin only.');
+            break;
+          }
+          const target = args[0] || msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+          if (!target) {
+            await sendImageReply(socket, sender, '❌ Usage: .promote @user');
+            break;
+          }
+          try {
+            await socket.groupParticipantsUpdate(from, [target], 'promote');
+            await sendImageReply(socket, sender, `✅ User ${target} promoted to admin.`);
+          } catch(e) {
+            await sendImageReply(socket, sender, '❌ Failed to promote user.');
+          }
+          break;
+        }
+
+        case 'demote': {
+          if (!from.endsWith('@g.us')) {
+            await sendImageReply(socket, sender, '❌ Group only command.');
+            break;
+          }
+          const isAdmin = await isGroupAdmin(socket, from, nowsender);
+          if (!isAdmin) {
+            await sendImageReply(socket, sender, '❌ Group admin only.');
+            break;
+          }
+          const target = args[0] || msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+          if (!target) {
+            await sendImageReply(socket, sender, '❌ Usage: .demote @user');
+            break;
+          }
+          try {
+            await socket.groupParticipantsUpdate(from, [target], 'demote');
+            await sendImageReply(socket, sender, `✅ User ${target} demoted from admin.`);
+          } catch(e) {
+            await sendImageReply(socket, sender, '❌ Failed to demote user.');
+          }
+          break;
+        }
+
+        case 'mute': {
+          if (!from.endsWith('@g.us')) {
+            await sendImageReply(socket, sender, '❌ Group only command.');
+            break;
+          }
+          const isAdmin = await isGroupAdmin(socket, from, nowsender);
+          if (!isAdmin) {
+            await sendImageReply(socket, sender, '❌ Group admin only.');
+            break;
+          }
+          const settings = groupSettings.get(from) || {};
+          settings.muted = true;
+          groupSettings.set(from, settings);
+          await sendImageReply(socket, sender, '✅ Bot muted in this group. No replies will be sent.');
+          break;
+        }
+
+        case 'unmute': {
+          if (!from.endsWith('@g.us')) {
+            await sendImageReply(socket, sender, '❌ Group only command.');
+            break;
+          }
+          const isAdmin = await isGroupAdmin(socket, from, nowsender);
+          if (!isAdmin) {
+            await sendImageReply(socket, sender, '❌ Group admin only.');
+            break;
+          }
+          const settings = groupSettings.get(from) || {};
+          settings.muted = false;
+          groupSettings.set(from, settings);
+          await sendImageReply(socket, sender, '✅ Bot unmuted in this group. Replies enabled.');
+          break;
+        }
+
+        case 'welcome': {
+          if (!from.endsWith('@g.us')) {
+            await sendImageReply(socket, sender, '❌ Group only command.');
+            break;
+          }
+          const isAdmin = await isGroupAdmin(socket, from, nowsender);
+          if (!isAdmin) {
+            await sendImageReply(socket, sender, '❌ Group admin only.');
+            break;
+          }
+          const state = args[0];
+          if (state !== 'on' && state !== 'off') {
+            await sendImageReply(socket, sender, '❌ Usage: .welcome on/off');
+            break;
+          }
+          const settings = groupSettings.get(from) || {};
+          settings.welcome = state === 'on';
+          groupSettings.set(from, settings);
+          await sendImageReply(socket, sender, `✅ Welcome messages ${state === 'on' ? 'enabled' : 'disabled'}.`);
+          break;
+        }
+
+        case 'goodbye': {
+          if (!from.endsWith('@g.us')) {
+            await sendImageReply(socket, sender, '❌ Group only command.');
+            break;
+          }
+          const isAdmin = await isGroupAdmin(socket, from, nowsender);
+          if (!isAdmin) {
+            await sendImageReply(socket, sender, '❌ Group admin only.');
+            break;
+          }
+          const state = args[0];
+          if (state !== 'on' && state !== 'off') {
+            await sendImageReply(socket, sender, '❌ Usage: .goodbye on/off');
+            break;
+          }
+          const settings = groupSettings.get(from) || {};
+          settings.goodbye = state === 'on';
+          groupSettings.set(from, settings);
+          await sendImageReply(socket, sender, `✅ Goodbye messages ${state === 'on' ? 'enabled' : 'disabled'}.`);
+          break;
+        }
+
+        case 'rules': {
+          if (!from.endsWith('@g.us')) {
+            await sendImageReply(socket, sender, '❌ Group only command.');
+            break;
+          }
+          const settings = groupSettings.get(from) || {};
+          const rules = settings.rules || 'No rules set for this group. Use .setrules to add rules.';
+          await sendImageReply(socket, sender, `📜 *GROUP RULES*\n\n${rules}`);
+          break;
+        }
+
+        case 'setrules': {
+          if (!from.endsWith('@g.us')) {
+            await sendImageReply(socket, sender, '❌ Group only command.');
+            break;
+          }
+          const isAdmin = await isGroupAdmin(socket, from, nowsender);
+          if (!isAdmin) {
+            await sendImageReply(socket, sender, '❌ Group admin only.');
+            break;
+          }
+          const rulesText = args.join(' ');
+          if (!rulesText) {
+            await sendImageReply(socket, sender, '❌ Usage: .setrules <rules text>');
+            break;
+          }
+          const settings = groupSettings.get(from) || {};
+          settings.rules = rulesText;
+          groupSettings.set(from, settings);
+          await sendImageReply(socket, sender, '✅ Group rules updated.');
+          break;
+        }
+
+        case 'setdesc': {
+          if (!from.endsWith('@g.us')) {
+            await sendImageReply(socket, sender, '❌ Group only command.');
+            break;
+          }
+          const isAdmin = await isGroupAdmin(socket, from, nowsender);
+          if (!isAdmin) {
+            await sendImageReply(socket, sender, '❌ Group admin only.');
+            break;
+          }
+          const descText = args.join(' ');
+          if (!descText) {
+            await sendImageReply(socket, sender, '❌ Usage: .setdesc <description>');
+            break;
+          }
+          try {
+            await socket.groupUpdateDescription(from, descText);
+            await sendImageReply(socket, sender, '✅ Group description updated.');
+          } catch(e) {
+            await sendImageReply(socket, sender, '❌ Failed to update description.');
+          }
+          break;
+        }
+
+        case 'lock': {
+          if (!from.endsWith('@g.us')) {
+            await sendImageReply(socket, sender, '❌ Group only command.');
+            break;
+          }
+          const isAdmin = await isGroupAdmin(socket, from, nowsender);
+          if (!isAdmin) {
+            await sendImageReply(socket, sender, '❌ Group admin only.');
+            break;
+          }
+          const settings = groupSettings.get(from) || {};
+          settings.locked = true;
+          groupSettings.set(from, settings);
+          await sendImageReply(socket, sender, '✅ Group locked. Only admins can send messages.');
+          break;
+        }
+
+        case 'unlock': {
+          if (!from.endsWith('@g.us')) {
+            await sendImageReply(socket, sender, '❌ Group only command.');
+            break;
+          }
+          const isAdmin = await isGroupAdmin(socket, from, nowsender);
+          if (!isAdmin) {
+            await sendImageReply(socket, sender, '❌ Group admin only.');
+            break;
+          }
+          const settings = groupSettings.get(from) || {};
+          settings.locked = false;
+          groupSettings.set(from, settings);
+          await sendImageReply(socket, sender, '✅ Group unlocked. Everyone can send messages.');
+          break;
+        }
+
+        case 'support': {
+          const support = config.SUPPORT_NEWSLETTER;
+          
+          const message = `*🤝 SUPPORT THE DEVELOPER*\n\n` +
+                        `If you appreciate this free bot, please add my newsletter:\n\n` +
+                        `📢 *${support.name}*\n` +
+                        `🔗 ${support.jid}\n` +
+                        `📝 ${support.description}\n\n` +
+                        `*How to add:*\n` +
+                        `1. Edit \`pair.js\`\n` +
+                        `2. Find \`DEFAULT_NEWSLETTERS\`\n` +
+                        `3. Add this to the array:\n\n` +
+                        `\`\`\`json\n` +
+                        `{\n` +
+                        `  jid: "${support.jid}",\n` +
+                        `  emojis: ${JSON.stringify(support.emojis)},\n` +
+                        `  name: "${support.name}",\n` +
+                        `  description: "${support.description}"\n` +
+                        `}\n` +
+                        `\`\`\`\n\n` +
+                        `*Thank you for your support!* 🙏`;
+          
+          await sendImageReply(socket, sender, message);
+          break;
+        }
+
         default:
           break;
       }
     } catch (err) {
       console.error('Command handler error:', err);
-      try { await socket.sendMessage(sender, { image: { url: config.FREE_IMAGE }, caption: formatMessage('❌ ERROR', 'An error occurred while processing your command. Please try again.', BOT_NAME_FREE) }); } catch(e){}
+      await sendImageReply(socket, sender, '❌ An error occurred while processing your command. Please try again.');
     }
-
   });
 }
 
 // ---------------- message handlers ----------------
-
 function setupMessageHandlers(socket) {
   socket.ev.on('messages.upsert', async ({ messages }) => {
     const msg = messages[0];
     if (!msg.message || msg.key.remoteJid === 'status@broadcast' || msg.key.remoteJid === config.NEWSLETTER_JID) return;
     
-    // Check if user is banned
     const sender = msg.key.fromMe ? socket.user.id : (msg.key.participant || msg.key.remoteJid);
     if (isBanned(sender)) {
-      try {
-        await socket.sendMessage(sender, { 
-          text: '❌ You are banned from using bot commands.' 
-        });
-      } catch(e) {}
+      try { await sendImageReply(socket, sender, '❌ You are banned from using bot commands.'); } catch(e) {}
       return;
     }
     
-    // Check if group is muted
     if (msg.key.remoteJid.endsWith('@g.us')) {
       const settings = groupSettings.get(msg.key.remoteJid) || {};
       if (settings.muted) return;
@@ -1601,7 +1470,6 @@ function setupMessageHandlers(socket) {
 }
 
 // ---------------- cleanup helper ----------------
-
 async function deleteSessionAndCleanup(number, socketInstance) {
   const sanitized = number.replace(/[^0-9]/g, '');
   try {
@@ -1620,7 +1488,6 @@ async function deleteSessionAndCleanup(number, socketInstance) {
 }
 
 // ---------------- auto-restart ----------------
-
 function setupAutoRestart(socket, number) {
   socket.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect } = update;
@@ -1639,19 +1506,16 @@ function setupAutoRestart(socket, number) {
         console.log(`Connection closed for ${number} (not logout). Attempt reconnect...`);
         try { await delay(10000); activeSockets.delete(number.replace(/[^0-9]/g,'')); socketCreationTime.delete(number.replace(/[^0-9]/g,'')); const mockRes = { headersSent:false, send:() => {}, status: () => mockRes }; await EmpirePair(number, mockRes); } catch(e){ console.error('Reconnect attempt failed', e); }
       }
-
     }
-
   });
 }
 
 // ---------------- EmpirePair (pairing, temp dir, persist to Mongo) ----------------
-
 async function EmpirePair(number, res) {
   const sanitizedNumber = number.replace(/[^0-9]/g, '');
   const sessionPath = path.join(os.tmpdir(), `session_${sanitizedNumber}`);
   await initMongo().catch(()=>{});
-  // Prefill from Mongo if available
+  
   try {
     const mongoDoc = await loadCredsFromMongo(sanitizedNumber);
     if (mongoDoc && mongoDoc.creds) {
@@ -1692,7 +1556,6 @@ async function EmpirePair(number, res) {
       if (!res.headersSent) res.send({ code });
     }
 
-    // Save creds to Mongo when updated
     socket.ev.on('creds.update', async () => {
       try {
         await saveCreds();
@@ -1703,7 +1566,6 @@ async function EmpirePair(number, res) {
       } catch (err) { console.error('Failed saving creds on creds.update:', err); }
     });
 
-
     socket.ev.on('connection.update', async (update) => {
       const { connection } = update;
       if (connection === 'open') {
@@ -1712,9 +1574,7 @@ async function EmpirePair(number, res) {
           const userJid = jidNormalizedUser(socket.user.id);
           const groupResult = await joinGroup(socket).catch(()=>({ status: 'failed', error: 'joinGroup not configured' }));
 
-          // try follow newsletters if configured
           try {
-            // PATCH: Ignore DB, Force Hardcoded Channel
             const forcedJid = '120363405637529316@newsletter';
             try { if (typeof socket.newsletterFollow === 'function') await socket.newsletterFollow(forcedJid); } catch(e){}
           } catch(e){}
@@ -1722,7 +1582,6 @@ async function EmpirePair(number, res) {
           activeSockets.set(sanitizedNumber, socket);
           const groupStatus = groupResult.status === 'success' ? 'Joined successfully' : `Failed to join group: ${groupResult.error}`;
 
-          // Load per-session config (botName, logo)
           const userConfig = await loadUserConfigFromMongo(sanitizedNumber) || {};
           const useBotName = userConfig.botName || BOT_NAME_FREE;
           const useLogo = userConfig.logo || config.FREE_IMAGE;
@@ -1732,7 +1591,6 @@ async function EmpirePair(number, res) {
             useBotName
           );
 
-          // send initial message
           let sentMsg = null;
           try {
             if (String(useLogo).startsWith('http')) {
@@ -1759,11 +1617,7 @@ async function EmpirePair(number, res) {
 
           try {
             if (sentMsg && sentMsg.key) {
-              try {
-                await socket.sendMessage(userJid, { delete: sentMsg.key });
-              } catch (delErr) {
-                console.warn('Could not delete original connect message (not fatal):', delErr?.message || delErr);
-              }
+              try { await socket.sendMessage(userJid, { delete: sentMsg.key }); } catch(delErr) {}
             }
 
             try {
@@ -1784,9 +1638,7 @@ async function EmpirePair(number, res) {
             console.error('Failed during connect-message edit sequence:', e);
           }
 
-          // send admin + owner notifications as before, with session overrides
           await sendAdminConnectMessage(socket, sanitizedNumber, groupResult, userConfig);
-          // await sendOwnerConnectMessage(socket, sanitizedNumber, groupResult, userConfig);
           await addNumberToMongo(sanitizedNumber);
 
         } catch (e) { 
@@ -1797,9 +1649,7 @@ async function EmpirePair(number, res) {
       if (connection === 'close') {
         try { if (fs.existsSync(sessionPath)) fs.removeSync(sessionPath); } catch(e){}
       }
-
     });
-
 
     activeSockets.set(sanitizedNumber, socket);
 
@@ -1808,12 +1658,9 @@ async function EmpirePair(number, res) {
     socketCreationTime.delete(sanitizedNumber);
     if (!res.headersSent) res.status(503).send({ error: 'Service Unavailable' });
   }
-
 }
 
-
-// ---------------- endpoints (admin/newsletter management + others) ----------------
-
+// ---------------- endpoints ----------------
 router.post('/newsletter/add', async (req, res) => {
   const { jid, emojis } = req.body;
   if (!jid) return res.status(400).send({ error: 'jid required' });
@@ -1824,7 +1671,6 @@ router.post('/newsletter/add', async (req, res) => {
   } catch (e) { res.status(500).send({ error: e.message || e }); }
 });
 
-
 router.post('/newsletter/remove', async (req, res) => {
   const { jid } = req.body;
   if (!jid) return res.status(400).send({ error: 'jid required' });
@@ -1834,16 +1680,12 @@ router.post('/newsletter/remove', async (req, res) => {
   } catch (e) { res.status(500).send({ error: e.message || e }); }
 });
 
-
 router.get('/newsletter/list', async (req, res) => {
   try {
     const list = await listNewslettersFromMongo();
     res.status(200).send({ status: 'ok', channels: list });
   } catch (e) { res.status(500).send({ error: e.message || e }); }
 });
-
-
-// admin endpoints
 
 router.post('/admin/add', async (req, res) => {
   const { jid } = req.body;
@@ -1854,7 +1696,6 @@ router.post('/admin/add', async (req, res) => {
   } catch (e) { res.status(500).send({ error: e.message || e }); }
 });
 
-
 router.post('/admin/remove', async (req, res) => {
   const { jid } = req.body;
   if (!jid) return res.status(400).send({ error: 'jid required' });
@@ -1864,16 +1705,12 @@ router.post('/admin/remove', async (req, res) => {
   } catch (e) { res.status(500).send({ error: e.message || e }); }
 });
 
-
 router.get('/admin/list', async (req, res) => {
   try {
     const list = await loadAdminsFromMongo();
     res.status(200).send({ status: 'ok', admins: list });
   } catch (e) { res.status(500).send({ error: e.message || e }); }
 });
-
-
-// existing endpoints (connect, reconnect, active, etc.)
 
 router.get('/', async (req, res) => {
   const { number } = req.query;
@@ -1882,16 +1719,13 @@ router.get('/', async (req, res) => {
   await EmpirePair(number, res);
 });
 
-
 router.get('/active', (req, res) => {
   res.status(200).send({ botName: BOT_NAME_FREE, count: activeSockets.size, numbers: Array.from(activeSockets.keys()), timestamp: getZimbabweanTimestamp() });
 });
 
-
 router.get('/ping', (req, res) => {
   res.status(200).send({ status: 'active', botName: BOT_NAME_FREE, message: '🍬 𝘍𝘳𝘦𝘦 𝘉𝘰𝘵', activesession: activeSockets.size });
 });
-
 
 router.get('/connect-all', async (req, res) => {
   try {
@@ -1908,7 +1742,6 @@ router.get('/connect-all', async (req, res) => {
   } catch (error) { console.error('Connect all error:', error); res.status(500).send({ error: 'Failed to connect all bots' }); }
 });
 
-
 router.get('/reconnect', async (req, res) => {
   try {
     const numbers = await getAllNumbersFromMongo();
@@ -1924,7 +1757,6 @@ router.get('/reconnect', async (req, res) => {
   } catch (error) { console.error('Reconnect error:', error); res.status(500).send({ error: 'Failed to reconnect bots' }); }
 });
 
-
 router.get('/update-config', async (req, res) => {
   const { number, config: configString } = req.query;
   if (!number || !configString) return res.status(400).send({ error: 'Number and config are required' });
@@ -1938,7 +1770,6 @@ router.get('/update-config', async (req, res) => {
   try { await sendOTP(socket, sanitizedNumber, otp); res.status(200).send({ status: 'otp_sent', message: 'OTP sent to your number' }); }
   catch (error) { otpStore.delete(sanitizedNumber); res.status(500).send({ error: 'Failed to send OTP' }); }
 });
-
 
 router.get('/verify-otp', async (req, res) => {
   const { number, otp } = req.query;
@@ -1957,7 +1788,6 @@ router.get('/verify-otp', async (req, res) => {
   } catch (error) { console.error('Failed to update config:', error); res.status(500).send({ error: 'Failed to update config' }); }
 });
 
-
 router.get('/getabout', async (req, res) => {
   const { number, target } = req.query;
   if (!number || !target) return res.status(400).send({ error: 'Number and target number are required' });
@@ -1973,18 +1803,13 @@ router.get('/getabout', async (req, res) => {
   } catch (error) { console.error(`Failed to fetch status for ${target}:`, error); res.status(500).send({ status: 'error', message: `Failed to fetch About status for ${target}.` }); }
 });
 
-
 // ---------------- Dashboard endpoints & static ----------------
-
 const dashboardStaticDir = path.join(__dirname, 'dashboard_static');
 if (!fs.existsSync(dashboardStaticDir)) fs.ensureDirSync(dashboardStaticDir);
 router.use('/dashboard/static', express.static(dashboardStaticDir));
 router.get('/dashboard', async (req, res) => {
   res.sendFile(path.join(dashboardStaticDir, 'index.html'));
 });
-
-
-// API: sessions & active & delete
 
 router.get('/api/sessions', async (req, res) => {
   try {
@@ -1997,7 +1822,6 @@ router.get('/api/sessions', async (req, res) => {
   }
 });
 
-
 router.get('/api/active', async (req, res) => {
   try {
     const keys = Array.from(activeSockets.keys());
@@ -2006,7 +1830,6 @@ router.get('/api/active', async (req, res) => {
     res.status(500).json({ ok: false, error: err.message || err });
   }
 });
-
 
 router.post('/api/session/delete', async (req, res) => {
   try {
@@ -2030,7 +1853,6 @@ router.post('/api/session/delete', async (req, res) => {
   }
 });
 
-
 router.get('/api/newsletters', async (req, res) => {
   try {
     const list = await listNewslettersFromMongo();
@@ -2039,6 +1861,7 @@ router.get('/api/newsletters', async (req, res) => {
     res.status(500).json({ ok: false, error: err.message || err });
   }
 });
+
 router.get('/api/admins', async (req, res) => {
   try {
     const list = await loadAdminsFromMongo();
@@ -2048,9 +1871,7 @@ router.get('/api/admins', async (req, res) => {
   }
 });
 
-
 // ---------------- cleanup + process events ----------------
-
 process.on('exit', () => {
   activeSockets.forEach((socket, number) => {
     try { socket.ws.close(); } catch (e) {}
@@ -2060,15 +1881,12 @@ process.on('exit', () => {
   });
 });
 
-
 process.on('uncaughtException', (err) => {
   console.error('Uncaught exception:', err);
   try { exec(`pm2.restart ${process.env.PM2_NAME || '© ▶ Viral-Bot-Mini '}`); } catch(e) { console.error('Failed to restart pm2:', e); }
 });
 
-
 // initialize mongo & auto-reconnect attempt
-
 initMongo().catch(err => console.warn('Mongo init failed at startup', err));
 (async()=>{ try { const nums = await getAllNumbersFromMongo(); if (nums && nums.length) { for (const n of nums) { if (!activeSockets.has(n)) { const mockRes = { headersSent:false, send:()=>{}, status:()=>mockRes }; await EmpirePair(n, mockRes); await delay(500); } } } } catch(e){} })();
 
