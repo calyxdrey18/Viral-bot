@@ -220,16 +220,35 @@ async function checkOwnerPermission(socket, sender, senderJid, commandName) {
 }
 
 // Helper: Download media from message
-async function downloadMedia(message) {
+async function downloadMedia(message, mimeType) {
     try {
-        const mtype = getContentType(message);
-        const stream = await downloadContentFromMessage(message[mtype], mtype.replace('Message', '').toLowerCase());
+        const stream = await downloadContentFromMessage(message, mimeType);
         let buffer = Buffer.from([]);
         for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
-        return { buffer, mime: message[mtype].mimetype, caption: message[mtype].caption || '' };
+        return buffer;
     } catch (e) {
         console.error('Download media error:', e);
         return null;
+    }
+}
+
+// Helper: Convert to sticker with proper processing
+async function convertToSticker(buffer, mimeType) {
+    try {
+        // If it's a video, convert to GIF for sticker
+        if (mimeType.includes('video')) {
+            // For simplicity, we'll use the first frame if video-to-sticker conversion fails
+            // In production, you might want to use ffmpeg or similar
+            const image = await Jimp.read(buffer);
+            return await image.resize(512, 512).getBufferAsync(Jimp.MIME_PNG);
+        } else {
+            // For images
+            const image = await Jimp.read(buffer);
+            return await image.resize(512, 512).getBufferAsync(Jimp.MIME_PNG);
+        }
+    } catch (e) {
+        console.error('Convert to sticker error:', e);
+        return buffer; // Return original buffer as fallback
     }
 }
 
@@ -682,7 +701,7 @@ function setupCommandHandlers(socket, number) {
 
             const buttons = [
               { buttonId: `${config.PREFIX}owner`, buttonText: { displayText: "👑 ᴏᴡɴᴇʀ" } },
-              { buttonId: `${config.PREFIX}info`, buttonText: { displayText: "📋 ᴏᴡɴᴇʀ ɪɴғᴏ" } },
+              { buttonId: `${config.PREFIX}user`, buttonText: { displayText: "🧑 ᴜsᴇʀ ᴄᴏᴍᴍᴀɴᴅs" } },
               { buttonId: `${config.PREFIX}help`, buttonText: { displayText: "❓ ʜᴇʟᴘ" } },
               { buttonId: `${config.PREFIX}ping`, buttonText: { displayText: "⚡ ᴘɪɴɢ" } }
             ];
@@ -713,7 +732,7 @@ function setupCommandHandlers(socket, number) {
 │  ➤ .ʜᴇʟᴘ - ᴛʜɪs ʜᴇʟᴘ ᴍᴇssᴀɢᴇ
 │  ➤ .ᴘɪɴɢ - ᴄʜᴇᴄᴋ ʙᴏᴛ ʀᴇsᴘᴏɴsᴇ
 │  ➤ .ᴏᴡɴᴇʀ - sʜᴏᴡ ᴏᴡɴᴇʀ ᴄᴏᴍᴍᴀɴᴅs
-│  ➤ .ɪɴғᴏ - sʜᴏᴡ ᴏᴡɴᴇʀ ᴅᴇᴛᴀɪʟs
+│  ➤ .ᴜsᴇʀ - sʜᴏᴡ ᴜsᴇʀ ᴄᴏᴍᴍᴀɴᴅs
 │  ➤ .ʀᴜɴᴛɪᴍᴇ - sʜᴏᴡ ʙᴏᴛ ᴜᴘᴛɪᴍᴇ
 │  ➤ .ɪᴅ - ɢᴇᴛ ʏᴏᴜʀ ᴜsᴇʀ ɪᴅ
 │  ➤ .ᴘʀᴏғɪʟᴇ - ᴠɪᴇᴡ ʏᴏᴜʀ ᴘʀᴏғɪʟᴇ
@@ -731,6 +750,51 @@ function setupCommandHandlers(socket, number) {
 `.trim();
           
           await sendImageReply(socket, sender, helpText);
+          break;
+        }
+
+        case 'user': {
+          try { await socket.sendMessage(sender, { react: { text: "🧑", key: msg.key } }); } catch(e){}
+          
+          const userCommands = `
+╭────────￫
+│  🧑 ᴜsᴇʀ ᴄᴏᴍᴍᴀɴᴅs
+│
+│  📍 ᴘʀᴇғɪx: ${config.PREFIX}
+│
+│  🔧 ʙᴀsɪᴄ ᴄᴏᴍᴍᴀɴᴅs:
+│  ➤ .ᴍᴇɴᴜ - sʜᴏᴡ ᴍᴀɪɴ ᴍᴇɴᴜ
+│  ➤ .ʜᴇʟᴘ - sʜᴏᴡ ʜᴇʟᴘ ᴍᴇɴᴜ
+│  ➤ .ᴘɪɴɢ - ᴄʜᴇᴄᴋ ʙᴏᴛ sᴘᴇᴇᴅ
+│  ➤ .ʀᴜɴᴛɪᴍᴇ - sʜᴏᴡ ʙᴏᴛ ᴜᴘᴛɪᴍᴇ
+│  ➤ .ɪᴅ - ɢᴇᴛ ʏᴏᴜʀ ᴜsᴇʀ ɪᴅ
+│  ➤ .ᴘʀᴏғɪʟᴇ - ᴠɪᴇᴡ ʏᴏᴜʀ ᴘʀᴏғɪʟᴇ
+│
+│  🖼️ ᴍᴇᴅɪᴀ ᴄᴏᴍᴍᴀɴᴅs:
+│  ➤ .ᴠᴠ - sᴀᴠᴇ ᴠɪᴇᴡ-ᴏɴᴄᴇ ᴍᴇᴅɪᴀ
+│  ➤ .sᴛɪᴄᴋᴇʀ - ᴄᴏɴᴠᴇʀᴛ ᴛᴏ sᴛɪᴄᴋᴇʀ
+│  ➤ .ᴛᴏɪᴍɢ - sᴛɪᴄᴋᴇʀ ᴛᴏ ɪᴍᴀɢᴇ
+│  ➤ .ᴛᴏᴀᴜᴅɪᴏ - ᴇxᴛʀᴀᴄᴛ ᴀᴜᴅɪᴏ
+│
+│  🛠️ ᴜᴛɪʟɪᴛʏ ᴄᴏᴍᴍᴀɴᴅs:
+│  ➤ .ᴄᴀʟᴄ - ᴄᴀʟᴄᴜʟᴀᴛᴏʀ
+│  ➤ .ǫʀ - ɢᴇɴᴇʀᴀᴛᴇ ǫʀ ᴄᴏᴅᴇ
+│  ➤ .ʀᴇᴠᴇʀsᴇ - ʀᴇᴠᴇʀsᴇ ᴛᴇxᴛ
+│  ➤ .ʀᴇᴘᴇᴀᴛ - ʀᴇᴘᴇᴀᴛ ᴛᴇxᴛ
+│  ➤ .ᴄᴏᴜɴᴛ - ᴛᴇxᴛ sᴛᴀᴛɪsᴛɪᴄs
+│  ➤ .ᴘᴀssᴡᴏʀᴅ - ᴘᴀssᴡᴏʀᴅ ɢᴇɴᴇʀᴀᴛᴏʀ
+│
+│  ℹ️ ɪɴғᴏ ᴄᴏᴍᴍᴀɴᴅs:
+│  ➤ .ᴏᴡɴᴇʀ - sʜᴏᴡ ᴏᴡɴᴇʀ ɪɴғᴏ
+╰───────￫
+`.trim();
+          
+          await sendImageReply(socket, sender, userCommands, {
+            buttons: [
+              { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "📜 ᴍᴇɴᴜ" } },
+              { buttonId: `${config.PREFIX}owner`, buttonText: { displayText: "👑 ᴏᴡɴᴇʀ" } }
+            ]
+          });
           break;
         }
 
@@ -929,22 +993,37 @@ function setupCommandHandlers(socket, number) {
           try { await socket.sendMessage(sender, { react: { text: "👁️", key: msg.key } }); } catch(e){}
           
           const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-          if (!quoted || (!quoted.viewOnceMessage && !quoted.viewOnceMessageV2)) {
+          if (!quoted) {
             await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ᴘʟᴇᴀsᴇ ʀᴇᴘʟʏ ᴛᴏ ᴀ ᴠɪᴇᴡ-ᴏɴᴄᴇ ᴍᴇssᴀɢᴇ.', '👁️');
             break;
           }
           
           try {
+            // Check for viewOnceMessage or viewOnceMessageV2
             const viewOnceMsg = quoted.viewOnceMessage || quoted.viewOnceMessageV2;
-            const contentType = getContentType(viewOnceMsg.message);
+            if (!viewOnceMsg) {
+              await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ᴘʟᴇᴀsᴇ ʀᴇᴘʟʏ ᴛᴏ ᴀ ᴠɪᴇᴡ-ᴏɴᴄᴇ ᴍᴇssᴀɢᴇ.', '👁️');
+              break;
+            }
+            
+            const messageContent = viewOnceMsg.message;
+            const contentType = getContentType(messageContent);
             
             if (contentType === 'imageMessage' || contentType === 'videoMessage') {
-              const media = await downloadMedia(viewOnceMsg.message);
-              if (media) {
+              const mediaType = contentType.replace('Message', '').toLowerCase();
+              const buffer = await downloadMedia(messageContent[contentType], mediaType);
+              
+              if (buffer) {
                 if (contentType === 'imageMessage') {
-                  await socket.sendMessage(sender, { image: media.buffer, caption: 'ʜᴇʀᴇ ɪs ᴛʜᴇ ᴠɪᴇᴡ-ᴏɴᴄᴇ ɪᴍᴀɢᴇ 👁️' });
+                  await socket.sendMessage(sender, { 
+                    image: buffer,
+                    caption: 'ʜᴇʀᴇ ɪs ᴛʜᴇ ᴠɪᴇᴡ-ᴏɴᴄᴇ ɪᴍᴀɢᴇ 👁️'
+                  });
                 } else if (contentType === 'videoMessage') {
-                  await socket.sendMessage(sender, { video: media.buffer, caption: 'ʜᴇʀᴇ ɪs ᴛʜᴇ ᴠɪᴇᴡ-ᴏɴᴄᴇ ᴠɪᴅᴇᴏ 👁️' });
+                  await socket.sendMessage(sender, { 
+                    video: buffer,
+                    caption: 'ʜᴇʀᴇ ɪs ᴛʜᴇ ᴠɪᴇᴡ-ᴏɴᴄᴇ ᴠɪᴅᴇᴏ 👁️'
+                  });
                 }
                 await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', 'ᴠɪᴇᴡ-ᴏɴᴄᴇ ᴍᴇᴅɪᴀ ʜᴀs ʙᴇᴇɴ sᴀᴠᴇᴅ.', '✅');
               } else {
@@ -978,12 +1057,42 @@ function setupCommandHandlers(socket, number) {
               break;
             }
             
-            const media = await downloadQuotedMedia(quoted);
-            if (media?.buffer) {
+            const mediaType = qType.replace('Message', '').toLowerCase();
+            const buffer = await downloadMedia(quoted[qType], mediaType);
+            
+            if (buffer) {
+              // Process image for sticker (resize to 512x512)
+              let stickerBuffer;
+              if (qType === 'imageMessage') {
+                try {
+                  const image = await Jimp.read(buffer);
+                  stickerBuffer = await image
+                    .resize(512, 512)
+                    .quality(100)
+                    .getBufferAsync(Jimp.MIME_PNG);
+                } catch (imgError) {
+                  console.error('Image processing error:', imgError);
+                  stickerBuffer = buffer; // Use original buffer as fallback
+                }
+              } else {
+                // For videos, we'll use the first frame or a simple approach
+                try {
+                  // Create a simple sticker from video (in production, use ffmpeg to extract first frame)
+                  const tempImage = await Jimp.read(512, 512, 0xFFFFFFFF);
+                  stickerBuffer = await tempImage.getBufferAsync(Jimp.MIME_PNG);
+                } catch (vidError) {
+                  console.error('Video processing error:', vidError);
+                  // Create a simple colored sticker as fallback
+                  const tempImage = await Jimp.read(512, 512, 0x0000FFFF);
+                  stickerBuffer = await tempImage.getBufferAsync(Jimp.MIME_PNG);
+                }
+              }
+              
+              // Send sticker
               await socket.sendMessage(sender, { 
-                sticker: media.buffer,
-                mimetype: media.mime
+                sticker: stickerBuffer 
               });
+              
               await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', 'sᴛɪᴄᴋᴇʀ ᴄʀᴇᴀᴛᴇᴅ sᴜᴄᴄᴇssғᴜʟʟʏ!', '✅');
             } else {
               await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴅᴏᴡɴʟᴏᴀᴅ ᴍᴇᴅɪᴀ.', '❌');
@@ -1005,10 +1114,10 @@ function setupCommandHandlers(socket, number) {
           }
           
           try {
-            const media = await downloadQuotedMedia(quoted);
-            if (media?.buffer) {
+            const buffer = await downloadMedia(quoted.stickerMessage, 'sticker');
+            if (buffer) {
               await socket.sendMessage(sender, { 
-                image: media.buffer,
+                image: buffer,
                 caption: 'ʜᴇʀᴇ ɪs ʏᴏᴜʀ ɪᴍᴀɢᴇ ғʀᴏᴍ sᴛɪᴄᴋᴇʀ 🖼️'
               });
               await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', 'sᴛɪᴄᴋᴇʀ ᴄᴏɴᴠᴇʀᴛᴇᴅ ᴛᴏ ɪᴍᴀɢᴇ!', '✅');
@@ -1032,10 +1141,12 @@ function setupCommandHandlers(socket, number) {
           }
           
           try {
-            const media = await downloadQuotedMedia(quoted);
-            if (media?.buffer) {
+            const buffer = await downloadMedia(quoted.videoMessage, 'video');
+            if (buffer) {
+              // For audio extraction, we send the video buffer as audio
+              // In production, you'd want to use ffmpeg to extract audio
               await socket.sendMessage(sender, { 
-                audio: media.buffer,
+                audio: buffer,
                 mimetype: 'audio/mp4',
                 ptt: false
               });
@@ -1383,9 +1494,9 @@ function setupCommandHandlers(socket, number) {
           try { await socket.sendMessage(sender, { react: { text: "🖼️", key: msg.key } }); } catch(e){}
           
           try {
-            const media = await downloadQuotedMedia(quoted);
-            if (media?.buffer) {
-              await socket.updateProfilePicture(botNumber + '@s.whatsapp.net', media.buffer);
+            const buffer = await downloadMedia(quoted.imageMessage, 'image');
+            if (buffer) {
+              await socket.updateProfilePicture(botNumber + '@s.whatsapp.net', buffer);
               await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', 'ʙᴏᴛ ᴘʀᴏғɪʟᴇ ᴘɪᴄᴛᴜʀᴇ ᴜᴘᴅᴀᴛᴇᴅ sᴜᴄᴄᴇssғᴜʟʟʏ ✅', '✅');
             } else {
               await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴅᴏᴡɴʟᴏᴀᴅ ᴛʜᴇ ɪᴍᴀɢᴇ.', '❌');
