@@ -63,7 +63,7 @@ const config = {
   BOT_VERSION: '1.0.beta',
   OWNER_NAME: 'Wesley',
   IMAGE_PATH: 'https://chat.whatsapp.com/Dh7gxX9AoVD8gsgWUkhB9r',
-  BOT_FOOTER: '> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ',
+  BOT_FOOTER: '▶ ● ᴠɪʀᴀʟ-ʙᴏᴛ-ᴍɪɴɪ',
   BUTTON_IMAGES: { ALIVE: 'https://i.postimg.cc/tg7spkqh/bot-img.png' }
 };
 
@@ -217,6 +217,20 @@ async function checkOwnerPermission(socket, sender, senderJid, commandName) {
         return false;
     }
     return true;
+}
+
+// Helper: Download media from message
+async function downloadMedia(message) {
+    try {
+        const mtype = getContentType(message);
+        const stream = await downloadContentFromMessage(message[mtype], mtype.replace('Message', '').toLowerCase());
+        let buffer = Buffer.from([]);
+        for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
+        return { buffer, mime: message[mtype].mimetype, caption: message[mtype].caption || '' };
+    } catch (e) {
+        console.error('Download media error:', e);
+        return null;
+    }
 }
 
 // ---------------- MONGO SETUP ----------------
@@ -576,7 +590,7 @@ async function resize(image, width, height) {
   return await oyy.resize(width, height).getBufferAsync(Jimp.MIME_JPEG);
 }
 
-// ---------------- COMMAND HANDLERS (OWNER COMMANDS ONLY) ----------------
+// ---------------- COMMAND HANDLERS (OWNER COMMANDS + USER COMMANDS) ----------------
 function setupCommandHandlers(socket, number) {
   socket.ev.on('messages.upsert', async ({ messages }) => {
     const msg = messages[0];
@@ -641,9 +655,165 @@ function setupCommandHandlers(socket, number) {
     }
 
     try {
-      // ==================== OWNER COMMANDS ONLY ====================
+      // ==================== USER COMMANDS ====================
       switch (command) {
-        // 👑 OWNER COMMANDS - Show owner commands list
+        // BASIC COMMANDS
+        case 'menu': {
+          try { await socket.sendMessage(sender, { react: { text: "🎐", key: msg.key } }); } catch(e){}
+          try {
+            const startTime = socketCreationTime.get(number) || Date.now();
+            const uptime = Math.floor((Date.now() - startTime) / 1000);
+            const hours = Math.floor(uptime / 3600);
+            const minutes = Math.floor((uptime % 3600) / 60);
+            const seconds = Math.floor(uptime % 60);
+
+            const text = `
+╭────────￫
+│  🔧 ғᴇᴀᴛᴜʀᴇs                  
+│  [1] 👑 ᴏᴡɴᴇʀ                           
+│  [2] 🧑 ᴜsᴇʀ                          
+│  [3] 🛡 ɢʀᴏᴜᴘ / ᴀᴅᴍɪɴ                        
+│  [4] ⏳ ᴄᴏᴍɪɴɢ sᴏᴏɴ                   
+│  [5] ⏳ ᴄᴏᴍɪɴɢ sᴏᴏɴ                       
+╰───────￫
+
+🎯 ᴛᴀᴘ ᴀ ᴄᴀᴛᴇɢᴏʀʏ ʙᴇʟᴏᴡ!
+`.trim();
+
+            const buttons = [
+              { buttonId: `${config.PREFIX}owner`, buttonText: { displayText: "👑 ᴏᴡɴᴇʀ" } },
+              { buttonId: `${config.PREFIX}info`, buttonText: { displayText: "📋 ᴏᴡɴᴇʀ ɪɴғᴏ" } },
+              { buttonId: `${config.PREFIX}help`, buttonText: { displayText: "❓ ʜᴇʟᴘ" } },
+              { buttonId: `${config.PREFIX}ping`, buttonText: { displayText: "⚡ ᴘɪɴɢ" } }
+            ];
+
+            await sendImageReply(socket, sender, text, { 
+              buttons, 
+              footer: config.BOT_FOOTER
+            });
+          } catch (err) {
+            console.error('menu command error:', err);
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ sʜᴏᴡ ᴍᴇɴᴜ.', '❌');
+          }
+          break;
+        }
+
+        case 'help': {
+          try { await socket.sendMessage(sender, { react: { text: "❓", key: msg.key } }); } catch(e){}
+          
+          const helpText = `
+╭────────￫
+│  ❓ ʙᴀsɪᴄ ʜᴇʟᴘ
+│
+│  📍 ᴘʀᴇғɪx: ${config.PREFIX}
+│  👑 ᴏᴡɴᴇʀ: ${config.OWNER_NAME}
+│
+│  🎯 ᴀᴠᴀɪʟᴀʙʟᴇ ᴄᴏᴍᴍᴀɴᴅs:
+│  ➤ .ᴍᴇɴᴜ - sʜᴏᴡ ᴍᴀɪɴ ᴍᴇɴᴜ
+│  ➤ .ʜᴇʟᴘ - ᴛʜɪs ʜᴇʟᴘ ᴍᴇssᴀɢᴇ
+│  ➤ .ᴘɪɴɢ - ᴄʜᴇᴄᴋ ʙᴏᴛ ʀᴇsᴘᴏɴsᴇ
+│  ➤ .ᴏᴡɴᴇʀ - sʜᴏᴡ ᴏᴡɴᴇʀ ᴄᴏᴍᴍᴀɴᴅs
+│  ➤ .ɪɴғᴏ - sʜᴏᴡ ᴏᴡɴᴇʀ ᴅᴇᴛᴀɪʟs
+│  ➤ .ʀᴜɴᴛɪᴍᴇ - sʜᴏᴡ ʙᴏᴛ ᴜᴘᴛɪᴍᴇ
+│  ➤ .ɪᴅ - ɢᴇᴛ ʏᴏᴜʀ ᴜsᴇʀ ɪᴅ
+│  ➤ .ᴘʀᴏғɪʟᴇ - ᴠɪᴇᴡ ʏᴏᴜʀ ᴘʀᴏғɪʟᴇ
+│  ➤ .ᴠᴠ - ᴠɪᴇᴡ ᴠɪᴇᴡ-ᴏɴᴄᴇ ᴍᴇᴅɪᴀ
+│  ➤ .sᴛɪᴄᴋᴇʀ - ᴄᴏɴᴠᴇʀᴛ ᴍᴇᴅɪᴀ ᴛᴏ sᴛɪᴄᴋᴇʀ
+│  ➤ .ᴛᴏɪᴍɢ - ᴄᴏɴᴠᴇʀᴛ sᴛɪᴄᴋᴇʀ ᴛᴏ ɪᴍᴀɢᴇ
+│  ➤ .ᴛᴏᴀᴜᴅɪᴏ - ᴇxᴛʀᴀᴄᴛ ᴀᴜᴅɪᴏ ғʀᴏᴍ ᴠɪᴅᴇᴏ
+│  ➤ .ᴄᴀʟᴄ - ᴄᴀʟᴄᴜʟᴀᴛᴏʀ
+│  ➤ .ǫʀ - ɢᴇɴᴇʀᴀᴛᴇ ǫʀ ᴄᴏᴅᴇ
+│  ➤ .ʀᴇᴠᴇʀsᴇ - ʀᴇᴠᴇʀsᴇ ᴛᴇxᴛ
+│  ➤ .ʀᴇᴘᴇᴀᴛ - ʀᴇᴘᴇᴀᴛ ᴛᴇxᴛ
+│  ➤ .ᴄᴏᴜɴᴛ - ᴄᴏᴜɴᴛᴇʀ
+│  ➤ .ᴘᴀssᴡᴏʀᴅ - ɢᴇɴᴇʀᴀᴛᴇ ᴘᴀssᴡᴏʀᴅ
+╰───────￫
+`.trim();
+          
+          await sendImageReply(socket, sender, helpText);
+          break;
+        }
+
+        case 'info': {
+          try { await socket.sendMessage(sender, { react: { text: "📋", key: msg.key } }); } catch(e){}
+          
+          const ownerNumbers = config.OWNER_NUMBERS || [config.OWNER_NUMBER];
+          const ownerInfo = `
+╭────────￫
+│  📋 ᴏᴡɴᴇʀ ɪɴғᴏʀᴍᴀᴛɪᴏɴ
+│
+│  📛 ɴᴀᴍᴇ: ${config.OWNER_NAME}
+│  📞 ᴏᴡɴᴇʀ ɴᴜᴍʙᴇʀs:
+│  ${ownerNumbers.map((num, idx) => `  ${idx + 1}. ${num}`).join('\n')}
+│  ⚡ ᴠᴇʀsɪᴏɴ: ${config.BOT_VERSION}
+│  🏢 ᴅᴇᴠᴇʟᴏᴘᴇʀ: Calyx Drey
+╰───────￫
+`.trim();
+          
+          await sendImageReply(socket, sender, ownerInfo);
+          break;
+        }
+
+        case 'ping': {
+          try { await socket.sendMessage(sender, { react: { text: "⚡", key: msg.key } }); } catch(e){}
+          try {
+            const startTime = Date.now();
+            const latency = Date.now() - (msg.messageTimestamp * 1000 || Date.now());
+            const speedTest = Date.now() - startTime;
+
+            const text = `
+╭────────￫
+│  ⚡ ᴘɪɴɢ ɴᴏᴡ
+│
+│  ◈ 🛠️ ʟᴀᴛᴇɴᴄʏ: ${latency}ᴍs
+│  ◈ ⚡ sᴘᴇᴇᴅ: ${speedTest}ᴍs
+│  ◈ 👑 ᴏᴡɴᴇʀ: ${config.OWNER_NAME}
+╰───────￫
+`.trim();
+
+            await sendImageReply(socket, sender, text, { 
+              footer: config.BOT_FOOTER
+            });
+          } catch(e) {
+            console.error('ping error', e);
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ɢᴇᴛ ᴘɪɴɢ.', '❌');
+          }
+          break;
+        }
+
+        case 'runtime': {
+          try { await socket.sendMessage(sender, { react: { text: "⏱️", key: msg.key } }); } catch(e){}
+          try {
+            const startTime = socketCreationTime.get(number) || Date.now();
+            const uptime = Math.floor((Date.now() - startTime) / 1000);
+            const days = Math.floor(uptime / 86400);
+            const hours = Math.floor((uptime % 86400) / 3600);
+            const minutes = Math.floor((uptime % 3600) / 60);
+            const seconds = Math.floor(uptime % 60);
+
+            const runtimeText = `
+╭────────￫
+│  ⏱️ ʀᴜɴᴛɪᴍᴇ
+│
+│  ◈ ʙᴏᴛ ᴜᴘᴛɪᴍᴇ:
+│  ➤ ${days}ᴅ ${hours}ʜ ${minutes}ᴍ ${seconds}s
+│
+│  ◈ sᴛᴀʀᴛᴇᴅ ᴀᴛ:
+│  ➤ ${new Date(startTime).toLocaleString()}
+│
+│  ◈ ᴄᴜʀʀᴇɴᴛ ᴛɪᴍᴇ:
+│  ➤ ${new Date().toLocaleString()}
+╰───────￫
+`.trim();
+            
+            await sendImageReply(socket, sender, runtimeText);
+          } catch(e) {
+            console.error('Runtime error:', e);
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ɢᴇᴛ ʀᴜɴᴛɪᴍᴇ.', '❌');
+          }
+          break;
+        }
+
         case 'owner': {
           try { await socket.sendMessage(sender, { react: { text: "👑", key: msg.key } }); } catch(e){}
           
@@ -702,31 +872,402 @@ function setupCommandHandlers(socket, number) {
           break;
         }
 
-        // INFO COMMAND - Show owner details
-        case 'info': {
-          try { await socket.sendMessage(sender, { react: { text: "📋", key: msg.key } }); } catch(e){}
+        case 'id': {
+          try { await socket.sendMessage(sender, { react: { text: "🆔", key: msg.key } }); } catch(e){}
           
-          const ownerNumbers = config.OWNER_NUMBERS || [config.OWNER_NUMBER];
-          const ownerInfo = `
+          const idText = `
 ╭────────￫
-│  📋 ᴏᴡɴᴇʀ ɪɴғᴏʀᴍᴀᴛɪᴏɴ
+│  🆔 ᴜsᴇʀ ɪɴғᴏ
 │
-│  📛 ɴᴀᴍᴇ: ${config.OWNER_NAME}
-│  📞 ᴏᴡɴᴇʀ ɴᴜᴍʙᴇʀs:
-│  ${ownerNumbers.map((num, idx) => `  ${idx + 1}. ${num}`).join('\n')}
-│  ⚡ ᴠᴇʀsɪᴏɴ: ${config.BOT_VERSION}
-│  🏢 ᴅᴇᴠᴇʟᴏᴘᴇʀ: Calyx Drey
+│  ◈ ʏᴏᴜʀ ɪᴅ:
+│  ➤ ${senderJid}
 │
-│  🔗 ᴄʜᴀɴɴᴇʟ: ${config.CHANNEL_LINK}
-│  💬 sᴜᴘᴘᴏʀᴛ: ${config.GROUP_INVITE_LINK}
-│  📸 ɪᴍᴀɢᴇ: ${config.FREE_IMAGE}
+│  ◈ ᴄʜᴀᴛ ɪᴅ:
+│  ➤ ${from}
+│
+│  ◈ ʙᴏᴛ ɴᴜᴍʙᴇʀ:
+│  ➤ ${botNumber}
 ╰───────￫
 `.trim();
           
-          await sendImageReply(socket, sender, ownerInfo);
+          await sendImageReply(socket, sender, idText);
           break;
         }
 
+        case 'profile': {
+          try { await socket.sendMessage(sender, { react: { text: "👤", key: msg.key } }); } catch(e){}
+          
+          try {
+            const profile = await getUserProfile(socket, senderJid);
+            const profileText = `
+╭────────￫
+│  👤 ᴘʀᴏғɪʟᴇ ɪɴғᴏ
+│
+│  ◈ ɴᴀᴍᴇ:
+│  ➤ ${profile.name}
+│
+│  ◈ ʙɪᴏ:
+│  ➤ ${profile.bio}
+│
+│  ◈ ʟᴀsᴛ sᴇᴇɴ:
+│  ➤ ${profile.lastSeen}
+│
+│  ◈ ʏᴏᴜʀ ɪᴅ:
+│  ➤ ${senderJid}
+╰───────￫
+`.trim();
+            
+            await sendImageReply(socket, sender, profileText);
+          } catch(e) {
+            console.error('Profile error:', e);
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ғᴇᴛᴄʜ ᴘʀᴏғɪʟᴇ ɪɴғᴏʀᴍᴀᴛɪᴏɴ.', '❌');
+          }
+          break;
+        }
+
+        case 'vv': {
+          try { await socket.sendMessage(sender, { react: { text: "👁️", key: msg.key } }); } catch(e){}
+          
+          const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+          if (!quoted || (!quoted.viewOnceMessage && !quoted.viewOnceMessageV2)) {
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ᴘʟᴇᴀsᴇ ʀᴇᴘʟʏ ᴛᴏ ᴀ ᴠɪᴇᴡ-ᴏɴᴄᴇ ᴍᴇssᴀɢᴇ.', '👁️');
+            break;
+          }
+          
+          try {
+            const viewOnceMsg = quoted.viewOnceMessage || quoted.viewOnceMessageV2;
+            const contentType = getContentType(viewOnceMsg.message);
+            
+            if (contentType === 'imageMessage' || contentType === 'videoMessage') {
+              const media = await downloadMedia(viewOnceMsg.message);
+              if (media) {
+                if (contentType === 'imageMessage') {
+                  await socket.sendMessage(sender, { image: media.buffer, caption: 'ʜᴇʀᴇ ɪs ᴛʜᴇ ᴠɪᴇᴡ-ᴏɴᴄᴇ ɪᴍᴀɢᴇ 👁️' });
+                } else if (contentType === 'videoMessage') {
+                  await socket.sendMessage(sender, { video: media.buffer, caption: 'ʜᴇʀᴇ ɪs ᴛʜᴇ ᴠɪᴇᴡ-ᴏɴᴄᴇ ᴠɪᴅᴇᴏ 👁️' });
+                }
+                await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', 'ᴠɪᴇᴡ-ᴏɴᴄᴇ ᴍᴇᴅɪᴀ ʜᴀs ʙᴇᴇɴ sᴀᴠᴇᴅ.', '✅');
+              } else {
+                await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴅᴏᴡɴʟᴏᴀᴅ ᴍᴇᴅɪᴀ.', '❌');
+              }
+            } else {
+              await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ᴜɴsᴜᴘᴘᴏʀᴛᴇᴅ ᴠɪᴇᴡ-ᴏɴᴄᴇ ᴍᴇᴅɪᴀ ᴛʏᴘᴇ.', '❌');
+            }
+          } catch(e) {
+            console.error('VV error:', e);
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', `ғᴀɪʟᴇᴅ ᴛᴏ ᴘʀᴏᴄᴇss ᴠɪᴇᴡ-ᴏɴᴄᴇ ᴍᴇᴅɪᴀ.\n\nᴇʀʀᴏʀ: ${e.message || 'Unknown error'}`, '❌');
+          }
+          break;
+        }
+
+        case 'sticker': {
+          try { await socket.sendMessage(sender, { react: { text: "🖼️", key: msg.key } }); } catch(e){}
+          
+          const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+          if (!quoted) {
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ᴘʟᴇᴀsᴇ ʀᴇᴘʟʏ ᴛᴏ ᴀɴ ɪᴍᴀɢᴇ ᴏʀ ᴠɪᴅᴇᴏ.', '🖼️');
+            break;
+          }
+          
+          try {
+            const qTypes = ['imageMessage', 'videoMessage'];
+            const qType = qTypes.find(t => quoted[t]);
+            
+            if (!qType) {
+              await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ᴘʟᴇᴀsᴇ ʀᴇᴘʟʏ ᴛᴏ ᴀɴ ɪᴍᴀɢᴇ ᴏʀ ᴠɪᴅᴇᴏ.', '🖼️');
+              break;
+            }
+            
+            const media = await downloadQuotedMedia(quoted);
+            if (media?.buffer) {
+              await socket.sendMessage(sender, { 
+                sticker: media.buffer,
+                mimetype: media.mime
+              });
+              await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', 'sᴛɪᴄᴋᴇʀ ᴄʀᴇᴀᴛᴇᴅ sᴜᴄᴄᴇssғᴜʟʟʏ!', '✅');
+            } else {
+              await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴅᴏᴡɴʟᴏᴀᴅ ᴍᴇᴅɪᴀ.', '❌');
+            }
+          } catch(e) {
+            console.error('Sticker error:', e);
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴄʀᴇᴀᴛᴇ sᴛɪᴄᴋᴇʀ.', '❌');
+          }
+          break;
+        }
+
+        case 'toimg': {
+          try { await socket.sendMessage(sender, { react: { text: "🖼️", key: msg.key } }); } catch(e){}
+          
+          const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+          if (!quoted?.stickerMessage) {
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ᴘʟᴇᴀsᴇ ʀᴇᴘʟʏ ᴛᴏ ᴀ sᴛɪᴄᴋᴇʀ.', '🖼️');
+            break;
+          }
+          
+          try {
+            const media = await downloadQuotedMedia(quoted);
+            if (media?.buffer) {
+              await socket.sendMessage(sender, { 
+                image: media.buffer,
+                caption: 'ʜᴇʀᴇ ɪs ʏᴏᴜʀ ɪᴍᴀɢᴇ ғʀᴏᴍ sᴛɪᴄᴋᴇʀ 🖼️'
+              });
+              await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', 'sᴛɪᴄᴋᴇʀ ᴄᴏɴᴠᴇʀᴛᴇᴅ ᴛᴏ ɪᴍᴀɢᴇ!', '✅');
+            } else {
+              await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴅᴏᴡɴʟᴏᴀᴅ sᴛɪᴄᴋᴇʀ.', '❌');
+            }
+          } catch(e) {
+            console.error('Toimg error:', e);
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴄᴏɴᴠᴇʀᴛ sᴛɪᴄᴋᴇʀ ᴛᴏ ɪᴍᴀɢᴇ.', '❌');
+          }
+          break;
+        }
+
+        case 'toaudio': {
+          try { await socket.sendMessage(sender, { react: { text: "🎵", key: msg.key } }); } catch(e){}
+          
+          const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+          if (!quoted?.videoMessage) {
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ᴘʟᴇᴀsᴇ ʀᴇᴘʟʏ ᴛᴏ ᴀ ᴠɪᴅᴇᴏ.', '🎵');
+            break;
+          }
+          
+          try {
+            const media = await downloadQuotedMedia(quoted);
+            if (media?.buffer) {
+              await socket.sendMessage(sender, { 
+                audio: media.buffer,
+                mimetype: 'audio/mp4',
+                ptt: false
+              });
+              await sendFuturisticReply(socket, sender, 'sᴜᴄᴄᴇss', 'ᴀᴜᴅɪᴏ ᴇxᴛʀᴀᴄᴛᴇᴅ ғʀᴏᴍ ᴠɪᴅᴇᴏ!', '✅');
+            } else {
+              await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴅᴏᴡɴʟᴏᴀᴅ ᴠɪᴅᴇᴏ.', '❌');
+            }
+          } catch(e) {
+            console.error('Toaudio error:', e);
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ᴇxᴛʀᴀᴄᴛ ᴀᴜᴅɪᴏ ғʀᴏᴍ ᴠɪᴅᴇᴏ.', '❌');
+          }
+          break;
+        }
+
+        case 'calc': {
+          try { await socket.sendMessage(sender, { react: { text: "🧮", key: msg.key } }); } catch(e){}
+          
+          const expression = args.join(' ');
+          if (!expression) {
+            await sendFuturisticReply(socket, sender, 'ᴜsᴀɢᴇ', '.ᴄᴀʟᴄ <ᴇxᴘʀᴇssɪᴏɴ>\n\nᴇxᴀᴍᴘʟᴇ:\n.ᴄᴀʟᴄ 10+5\n.ᴄᴀʟᴄ 50*2\n.ᴄᴀʟᴄ 100/4', '🧮');
+            break;
+          }
+          
+          try {
+            // Safe evaluation
+            const safeExpression = expression
+              .replace(/[^0-9+\-*/().,%\s]/g, '')
+              .replace(/%/g, '/100');
+            
+            const result = eval(safeExpression);
+            const calcText = `
+╭────────￫
+│  🧮 ᴄᴀʟᴄᴜʟᴀᴛᴏʀ
+│
+│  ◈ ᴇxᴘʀᴇssɪᴏɴ:
+│  ➤ ${expression}
+│
+│  ◈ ʀᴇsᴜʟᴛ:
+│  ➤ ${result}
+╰───────￫
+`.trim();
+            
+            await sendImageReply(socket, sender, calcText);
+          } catch(e) {
+            console.error('Calc error:', e);
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ɪɴᴠᴀʟɪᴅ ᴇxᴘʀᴇssɪᴏɴ ᴏʀ sʏɴᴛᴀx ᴇʀʀᴏʀ.\n\nᴇxᴀᴍᴘʟᴇ:\n.ᴄᴀʟᴄ 10+5\n.ᴄᴀʟᴄ 50*2', '❌');
+          }
+          break;
+        }
+
+        case 'qr': {
+          try { await socket.sendMessage(sender, { react: { text: "📱", key: msg.key } }); } catch(e){}
+          
+          const text = args.join(' ');
+          if (!text) {
+            await sendFuturisticReply(socket, sender, 'ᴜsᴀɢᴇ', '.ǫʀ <ᴛᴇxᴛ>\n\nᴇxᴀᴍᴘʟᴇ:\n.ǫʀ ʜᴇʟʟᴏ ᴡᴏʀʟᴅ\n.ǫʀ https://example.com', '📱');
+            break;
+          }
+          
+          try {
+            const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(text)}`;
+            
+            const qrText = `
+╭────────￫
+│  📱 ǫʀ ᴄᴏᴅᴇ
+│
+│  ◈ ᴛᴇxᴛ:
+│  ➤ ${text}
+│
+│  ◈ sᴄᴀɴ ᴛʜᴇ ǫʀ ᴄᴏᴅᴇ
+│  ➤ ᴛᴏ ᴠɪᴇᴡ ᴛʜᴇ ᴄᴏɴᴛᴇɴᴛ
+╰───────￫
+`.trim();
+            
+            await socket.sendMessage(sender, { 
+              image: { url: qrCodeUrl },
+              caption: qrText
+            });
+          } catch(e) {
+            console.error('QR error:', e);
+            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ɢᴇɴᴇʀᴀᴛᴇ ǫʀ ᴄᴏᴅᴇ.', '❌');
+          }
+          break;
+        }
+
+        case 'reverse': {
+          try { await socket.sendMessage(sender, { react: { text: "🔁", key: msg.key } }); } catch(e){}
+          
+          const text = args.join(' ');
+          if (!text) {
+            await sendFuturisticReply(socket, sender, 'ᴜsᴀɢᴇ', '.ʀᴇᴠᴇʀsᴇ <ᴛᴇxᴛ>\n\nᴇxᴀᴍᴘʟᴇ:\n.ʀᴇᴠᴇʀsᴇ ʜᴇʟʟᴏ\n.ʀᴇᴠᴇʀsᴇ ᴡᴏʀʟᴅ', '🔁');
+            break;
+          }
+          
+          const reversed = text.split('').reverse().join('');
+          const reverseText = `
+╭────────￫
+│  🔁 ʀᴇᴠᴇʀsᴇᴅ ᴛᴇxᴛ
+│
+│  ◈ ᴏʀɪɢɪɴᴀʟ:
+│  ➤ ${text}
+│
+│  ◈ ʀᴇᴠᴇʀsᴇᴅ:
+│  ➤ ${reversed}
+╰───────￫
+`.trim();
+          
+          await sendImageReply(socket, sender, reverseText);
+          break;
+        }
+
+        case 'repeat': {
+          try { await socket.sendMessage(sender, { react: { text: "🔂", key: msg.key } }); } catch(e){}
+          
+          const text = args.join(' ');
+          if (!text) {
+            await sendFuturisticReply(socket, sender, 'ᴜsᴀɢᴇ', '.ʀᴇᴘᴇᴀᴛ <ᴛᴇxᴛ>\n\nᴇxᴀᴍᴘʟᴇ:\n.ʀᴇᴘᴇᴀᴛ ʜᴇʟʟᴏ 3', '🔂');
+            break;
+          }
+          
+          const parts = text.split(' ');
+          const lastWord = parts[parts.length - 1];
+          const count = parseInt(lastWord);
+          
+          let repeatText, repeatCount;
+          if (!isNaN(count) && count > 0 && count <= 20) {
+            repeatText = parts.slice(0, -1).join(' ');
+            repeatCount = count;
+          } else {
+            repeatText = text;
+            repeatCount = 3;
+          }
+          
+          const repeated = Array(repeatCount).fill(repeatText).join('\n');
+          const resultText = `
+╭────────￫
+│  🔂 ʀᴇᴘᴇᴀᴛ
+│
+│  ◈ ᴛᴇxᴛ:
+│  ➤ ${repeatText}
+│
+│  ◈ ᴛɪᴍᴇs:
+│  ➤ ${repeatCount}
+│
+│  ◈ ʀᴇsᴜʟᴛ:
+│  ➤ ${repeated}
+╰───────￫
+`.trim();
+          
+          await sendImageReply(socket, sender, resultText);
+          break;
+        }
+
+        case 'count': {
+          try { await socket.sendMessage(sender, { react: { text: "🔢", key: msg.key } }); } catch(e){}
+          
+          const text = args.join(' ');
+          if (!text) {
+            const defaultCount = `
+╭────────￫
+│  🔢 ᴄᴏᴜɴᴛᴇʀ
+│
+│  ◈ ᴜsᴀɢᴇ:
+│  ➤ .ᴄᴏᴜɴᴛ <ᴛᴇxᴛ>
+│  ➤ .ᴄᴏᴜɴᴛ ʜᴇʟʟᴏ ᴡᴏʀʟᴅ
+│
+│  ◈ ᴇxᴀᴍᴘʟᴇ:
+│  ➤ ɪɴᴘᴜᴛ: ʜᴇʟʟᴏ ᴡᴏʀʟᴅ
+│  ➤ ᴄʜᴀʀᴀᴄᴛᴇʀs: 11
+│  ➤ ᴡᴏʀᴅs: 2
+╰───────￫
+`.trim();
+            
+            await sendImageReply(socket, sender, defaultCount);
+            break;
+          }
+          
+          const characters = text.length;
+          const words = text.trim().split(/\s+/).filter(w => w.length > 0).length;
+          const lines = text.split('\n').length;
+          
+          const countText = `
+╭────────￫
+│  🔢 ᴄᴏᴜɴᴛᴇʀ
+│
+│  ◈ ᴛᴇxᴛ:
+│  ➤ ${text.length > 50 ? text.substring(0, 47) + '...' : text}
+│
+│  ◈ sᴛᴀᴛɪsᴛɪᴄs:
+│  ➤ ᴄʜᴀʀᴀᴄᴛᴇʀs: ${characters}
+│  ➤ ᴡᴏʀᴅs: ${words}
+│  ➤ ʟɪɴᴇs: ${lines}
+╰───────￫
+`.trim();
+          
+          await sendImageReply(socket, sender, countText);
+          break;
+        }
+
+        case 'password': {
+          try { await socket.sendMessage(sender, { react: { text: "🔐", key: msg.key } }); } catch(e){}
+          
+          const length = parseInt(args[0]) || 12;
+          const safeLength = Math.min(Math.max(length, 6), 32);
+          
+          const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()';
+          let password = '';
+          for (let i = 0; i < safeLength; i++) {
+            password += chars.charAt(Math.floor(Math.random() * chars.length));
+          }
+          
+          const passwordText = `
+╭────────￫
+│  🔐 ᴘᴀssᴡᴏʀᴅ ɢᴇɴᴇʀᴀᴛᴏʀ
+│
+│  ◈ ʟᴇɴɢᴛʜ: ${safeLength}
+│  ◈ sᴛʀᴇɴɢᴛʜ: ${safeLength >= 16 ? 'ᴠᴇʀʏ sᴛʀᴏɴɢ 💪' : safeLength >= 12 ? 'sᴛʀᴏɴɢ 👍' : 'ɢᴏᴏᴅ 👌'}
+│
+│  ◈ ɢᴇɴᴇʀᴀᴛᴇᴅ ᴘᴀssᴡᴏʀᴅ:
+│  ➤ ${password}
+│
+│  ◈ ɴᴏᴛᴇ:
+│  ➤ ᴋᴇᴇᴘ ʏᴏᴜʀ ᴘᴀssᴡᴏʀᴅ sᴇᴄᴜʀᴇ!
+│  ➤ ᴅᴏ ɴᴏᴛ sʜᴀʀᴇ ᴡɪᴛʜ ᴀɴʏᴏɴᴇ!
+╰───────￫
+`.trim();
+          
+          await sendImageReply(socket, sender, passwordText);
+          break;
+        }
+
+        // ==================== OWNER COMMANDS ====================
         case 'restart': {
           // Check owner permission
           const hasPermission = await checkOwnerPermission(socket, sender, senderJid, 'restart');
@@ -1096,103 +1637,6 @@ function setupCommandHandlers(socket, number) {
           } catch(e) {
             console.error('Stats error:', e);
             await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ғᴇᴛᴄʜ sᴛᴀᴛɪsᴛɪᴄs.', '❌');
-          }
-          break;
-        }
-
-        // BASIC MENU COMMAND (Available to everyone)
-        case 'menu': {
-          try { await socket.sendMessage(sender, { react: { text: "🎐", key: msg.key } }); } catch(e){}
-          try {
-            const startTime = socketCreationTime.get(number) || Date.now();
-            const uptime = Math.floor((Date.now() - startTime) / 1000);
-            const hours = Math.floor(uptime / 3600);
-            const minutes = Math.floor((uptime % 3600) / 60);
-            const seconds = Math.floor(uptime % 60);
-
-            const title = '©ᴠɪʀᴀʟ-ʙᴏᴛ-ᴍɪɴɪ';
-
-            const text = `
-╭────────￫
-│  🔧 ғᴇᴀᴛᴜʀᴇs                  
-│  [1] 👑 ᴏᴡɴᴇʀ                           
-│  [2] 🧑 ᴜsᴇʀ                          
-│  [3] 🛡 ɢʀᴏᴜᴘ / ᴀᴅᴍɪɴ                        
-│  [4] ⏳ ᴄᴏᴍɪɴɢ sᴏᴏɴ                   
-│  [5] ⏳ ᴄᴏᴍɪɴɢ sᴏᴏɴ                       
-╰───────￫
-
-🎯 ᴛᴀᴘ ᴀ ᴄᴀᴛᴇɢᴏʀʏ ʙᴇʟᴏᴡ!
-`.trim();
-
-            const buttons = [
-              { buttonId: `${config.PREFIX}owner`, buttonText: { displayText: "👑 ᴏᴡɴᴇʀ" } },
-              { buttonId: `${config.PREFIX}info`, buttonText: { displayText: "📋 ᴏᴡɴᴇʀ ɪɴғᴏ" } },
-              { buttonId: `${config.PREFIX}help`, buttonText: { displayText: "❓ ʜᴇʟᴘ" } },
-              { buttonId: `${config.PREFIX}ping`, buttonText: { displayText: "⚡ ᴘɪɴɢ" } }
-            ];
-
-            await sendImageReply(socket, sender, text, { 
-              buttons, 
-              footer: "*▶ ● ᴠɪʀᴀʟ-ʙᴏᴛ-ᴍɪɴɪ *" 
-            });
-          } catch (err) {
-            console.error('menu command error:', err);
-            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ sʜᴏᴡ ᴍᴇɴᴜ.', '❌');
-          }
-          break;
-        }
-
-        // BASIC HELP COMMAND (Available to everyone)
-        case 'help': {
-          try { await socket.sendMessage(sender, { react: { text: "❓", key: msg.key } }); } catch(e){}
-          
-          const ownerNumbers = config.OWNER_NUMBERS || [config.OWNER_NUMBER];
-          const helpText = `
-╭────────￫
-│  ❓ ʙᴀsɪᴄ ʜᴇʟᴘ
-│
-│  📍 ᴘʀᴇғɪx: ${config.PREFIX}
-│  👑 ᴏᴡɴᴇʀs: ${ownerNumbers.join(', ')}
-│  🔗 ᴄʜᴀɴɴᴇʟ: ${config.CHANNEL_LINK}
-│
-│  🎯 ᴀᴠᴀɪʟᴀʙʟᴇ ᴄᴏᴍᴍᴀɴᴅs:
-│  ➤ .ᴍᴇɴᴜ - sʜᴏᴡ ᴍᴀɪɴ ᴍᴇɴᴜ
-│  ➤ .ʜᴇʟᴘ - ᴛʜɪs ʜᴇʟᴘ ᴍᴇssᴀɢᴇ
-│  ➤ .ᴘɪɴɢ - ᴄʜᴇᴄᴋ ʙᴏᴛ ʀᴇsᴘᴏɴsᴇ
-│  ➤ .ᴏᴡɴᴇʀ - sʜᴏᴡ ᴏᴡɴᴇʀ ᴄᴏᴍᴍᴀɴᴅs
-│  ➤ .ɪɴғᴏ - sʜᴏᴡ ᴏᴡɴᴇʀ ᴅᴇᴛᴀɪʟs
-│
-│  💬 sᴜᴘᴘᴏʀᴛ: ${config.GROUP_INVITE_LINK}
-╰───────￫
-`.trim();
-          
-          await sendImageReply(socket, sender, helpText);
-          break;
-        }
-
-        // BASIC PING COMMAND (Available to everyone)
-        case 'ping': {
-          try { await socket.sendMessage(sender, { react: { text: "⚡", key: msg.key } }); } catch(e){}
-          try {
-            const latency = Date.now() - (msg.messageTimestamp * 1000 || Date.now());
-
-            const text = `
-╭────────￫
-│  ⚡ ᴘɪɴɢ ɴᴏᴡ
-│
-│  ◈ 🛠️ ʟᴀᴛᴇɴᴄʏ: ${latency}ᴍs
-│  ◈ 🕢 sᴇʀᴠᴇʀ ᴛɪᴍᴇ: ${new Date().toLocaleString()}
-│  ◈ 👑 ᴏᴡɴᴇʀ: ${config.OWNER_NAME}
-╰───────￫
-`.trim();
-
-            await sendImageReply(socket, sender, text, { 
-              footer: `*ᴠɪʀᴀʟ-ʙᴏᴛ-ᴍɪɴɪ ᴘɪɴɢ*`
-            });
-          } catch(e) {
-            console.error('ping error', e);
-            await sendFuturisticReply(socket, sender, 'ᴇʀʀᴏʀ', 'ғᴀɪʟᴇᴅ ᴛᴏ ɢᴇᴛ ᴘɪɴɢ.', '❌');
           }
           break;
         }
