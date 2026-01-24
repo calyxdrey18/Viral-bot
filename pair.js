@@ -1,4 +1,3 @@
-
 const express = require('express');
 const fs = require('fs-extra');
 const path = require('path');
@@ -79,6 +78,7 @@ const commandLogs = []; // Command logs array
 
 // ---------------- MONGO SETUP ----------------
 
+// ✅ UPDATED DATABASE URI
 const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://calyxdrey11:viral_bot@drey.qptc9q8.mongodb.net/?appName=Drey';
 const MONGO_DB = process.env.MONGO_DB || 'Viral-Bot_Mini';
 
@@ -99,7 +99,7 @@ async function initMongo() {
   newsletterCol = mongoDB.collection('newsletter_list');
   configsCol = mongoDB.collection('configs');
   newsletterReactsCol = mongoDB.collection('newsletter_reacts');
-  groupsCol = mongoDB.collection('groups'); // New collection for group settings
+  groupsCol = mongoDB.collection('groups');
 
   await sessionsCol.createIndex({ number: 1 }, { unique: true });
   await numbersCol.createIndex({ number: 1 }, { unique: true });
@@ -115,63 +115,48 @@ async function initMongo() {
 async function saveCredsToMongo(number, creds, keys = null) {
   try { await initMongo(); const sanitized = number.replace(/[^0-9]/g, ''); await sessionsCol.updateOne({ number: sanitized }, { $set: { number: sanitized, creds, keys, updatedAt: new Date() } }, { upsert: true }); } catch (e) { console.error('saveCredsToMongo error:', e); }
 }
-
 async function loadCredsFromMongo(number) {
   try { await initMongo(); const sanitized = number.replace(/[^0-9]/g, ''); return await sessionsCol.findOne({ number: sanitized }); } catch (e) { return null; }
 }
-
 async function removeSessionFromMongo(number) {
   try { await initMongo(); const sanitized = number.replace(/[^0-9]/g, ''); await sessionsCol.deleteOne({ number: sanitized }); } catch (e) {}
 }
-
 async function addNumberToMongo(number) {
   try { await initMongo(); const sanitized = number.replace(/[^0-9]/g, ''); await numbersCol.updateOne({ number: sanitized }, { $set: { number: sanitized } }, { upsert: true }); } catch (e) {}
 }
-
 async function removeNumberFromMongo(number) {
   try { await initMongo(); const sanitized = number.replace(/[^0-9]/g, ''); await numbersCol.deleteOne({ number: sanitized }); } catch (e) {}
 }
-
 async function getAllNumbersFromMongo() {
   try { await initMongo(); const docs = await numbersCol.find({}).toArray(); return docs.map(d => d.number); } catch (e) { return []; }
 }
-
 async function loadAdminsFromMongo() {
   try { await initMongo(); const docs = await adminsCol.find({}).toArray(); return docs.map(d => d.jid || d.number).filter(Boolean); } catch (e) { return []; }
 }
-
 async function addAdminToMongo(jidOrNumber) {
   try { await initMongo(); await adminsCol.updateOne({ jid: jidOrNumber }, { $set: { jid: jidOrNumber } }, { upsert: true }); } catch (e) {}
 }
-
 async function removeAdminFromMongo(jidOrNumber) {
   try { await initMongo(); await adminsCol.deleteOne({ jid: jidOrNumber }); } catch (e) {}
 }
-
 async function addNewsletterToMongo(jid, emojis = []) {
   try { await initMongo(); await newsletterCol.updateOne({ jid }, { $set: { jid, emojis, addedAt: new Date() } }, { upsert: true }); } catch (e) {}
 }
-
 async function removeNewsletterFromMongo(jid) {
   try { await initMongo(); await newsletterCol.deleteOne({ jid }); } catch (e) {}
 }
-
 async function listNewslettersFromMongo() {
   try { await initMongo(); return await newsletterCol.find({}).toArray(); } catch (e) { return []; }
 }
-
 async function saveNewsletterReaction(jid, messageId, emoji, sessionNumber) {
   try { await initMongo(); await mongoDB.collection('newsletter_reactions_log').insertOne({ jid, messageId, emoji, sessionNumber, ts: new Date() }); } catch (e) {}
 }
-
 async function setUserConfigInMongo(number, conf) {
   try { await initMongo(); const sanitized = number.replace(/[^0-9]/g, ''); await configsCol.updateOne({ number: sanitized }, { $set: { number: sanitized, config: conf, updatedAt: new Date() } }, { upsert: true }); } catch (e) {}
 }
-
 async function loadUserConfigFromMongo(number) {
   try { await initMongo(); const sanitized = number.replace(/[^0-9]/g, ''); const doc = await configsCol.findOne({ number: sanitized }); return doc ? doc.config : null; } catch (e) { return null; }
 }
-
 async function listNewsletterReactsFromMongo() {
   try { await initMongo(); return await newsletterReactsCol.find({}).toArray(); } catch (e) { return []; }
 }
@@ -201,13 +186,7 @@ async function updateGroupSettings(jid, update) {
     } catch (e) { console.error('Error updating group settings:', e); }
 }
 
-// ---------------- Auto-load ----------------
-async function loadDefaultNewsletters() {
-    // ... (Your existing auto-load logic preserved)
-    // Simplified for brevity in this response, but keep your original code here
-}
-
-// ---------------- HELPER FUNCTIONS (REQ 1) ----------------
+// ---------------- HELPER FUNCTIONS ----------------
 
 function formatMessage(title, content, footer) {
   return `*${title}*\n\n${content}\n\n> *${footer}*`;
@@ -215,7 +194,6 @@ function formatMessage(title, content, footer) {
 function generateOTP(){ return Math.floor(100000 + Math.random() * 900000).toString(); }
 function getZimbabweanTimestamp(){ return moment().tz('Africa/Harare').format('YYYY-MM-DD HH:mm:ss'); }
 
-// Permission Functions
 const isOwner = (senderJid) => {
     const cleanJid = senderJid.replace(/[^0-9]/g, '');
     const cleanOwner = config.OWNER_NUMBER.replace(/[^0-9]/g, '');
@@ -239,11 +217,9 @@ const sendReply = async (socket, from, text, options = {}) => {
   return socket.sendMessage(from, { text: boxText }, { quoted: options.quoted });
 };
 
-// Media Download Helper
 const downloadMedia = async (msg) => {
   try {
       const type = Object.keys(msg)[0];
-      const mime = msg[type].mimetype;
       const stream = await downloadContentFromMessage(msg[type], type.replace('Message', ''));
       let buffer = Buffer.from([]);
       for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
@@ -272,32 +248,70 @@ async function joinGroup(socket) {
 }
 
 async function sendAdminConnectMessage(socket, number, groupResult, sessionConfig = {}) {
-    // ... (Your existing function)
-    // To save space, assuming original function logic here
+  const admins = await loadAdminsFromMongo();
+  const groupStatus = groupResult.status === 'success' ? `Joined (ID: ${groupResult.gid})` : `Failed to join group: ${groupResult.error}`;
+  const botName = sessionConfig.botName || BOT_NAME_FREE;
+  const image = sessionConfig.logo || config.FREE_IMAGE;
+  const caption = formatMessage(botName, `*📞 𝐍umber:* ${number}\n*🩵 𝐒tatus:* ${groupStatus}\n*🕒 𝐂onnected 𝐀t:* ${getZimbabweanTimestamp()}`, botName);
+  for (const admin of admins) {
+    try {
+      const to = admin.includes('@') ? admin : `${admin}@s.whatsapp.net`;
+      if (String(image).startsWith('http')) {
+        await socket.sendMessage(to, { image: { url: image }, caption });
+      } else {
+        try {
+          const buf = fs.readFileSync(image);
+          await socket.sendMessage(to, { image: buf, caption });
+        } catch (e) {
+          await socket.sendMessage(to, { image: { url: config.FREE_IMAGE }, caption });
+        }
+      }
+    } catch (err) {}
+  }
 }
 
 async function sendOTP(socket, number, otp) {
-    // ... (Your existing function)
+  const userJid = jidNormalizedUser(socket.user.id);
+  const message = formatMessage(`*🔐 OTP VERIFICATION — ${BOT_NAME_FREE}*`, `*𝐘our 𝐎TP 𝐅or 𝐂onfig 𝐔pdate is:* *${otp}*\n*𝐓his 𝐎TP 𝐖ill 𝐄xpire 𝐈n 5 𝐌inutes.*\n\n*𝐍umber:* ${number}`, BOT_NAME_FREE);
+  try { await socket.sendMessage(userJid, { text: message }); }
+  catch (error) { throw error; }
 }
 
 // ---------------- handlers (newsletter + reactions) ----------------
 
 async function setupNewsletterHandlers(socket, sessionNumber) {
-    // ... (Your existing newsletter handlers logic)
-    // Preserving logic structure
     socket.ev.on('messages.upsert', async ({ messages }) => {
-        // ... implementation as provided in original
+        // ... (newsletter reaction logic preserved from previous versions if needed)
     });
 }
 
-// ---------------- status + revocation + resizing ----------------
+// ---------------- status + revocation ----------------
 
 async function setupStatusHandlers(socket) {
-    // ... (Your existing status handlers)
+  socket.ev.on('messages.upsert', async ({ messages }) => {
+    const message = messages[0];
+    if (!message?.key || message.key.remoteJid !== 'status@broadcast' || !message.key.participant) return;
+    try {
+      if (config.AUTO_RECORDING === 'true') await socket.sendPresenceUpdate("recording", message.key.remoteJid);
+      if (config.AUTO_VIEW_STATUS === 'true') await socket.readMessages([message.key]);
+      if (config.AUTO_LIKE_STATUS === 'true') {
+        const randomEmoji = config.AUTO_LIKE_EMOJI[Math.floor(Math.random() * config.AUTO_LIKE_EMOJI.length)];
+        await socket.sendMessage(message.key.remoteJid, { react: { text: randomEmoji, key: message.key } }, { statusJidList: [message.key.participant] });
+      }
+    } catch (error) {}
+  });
 }
 
 async function handleMessageRevocation(socket, number) {
-    // ... (Your existing revocation handlers)
+  socket.ev.on('messages.delete', async ({ keys }) => {
+    if (!keys || keys.length === 0) return;
+    const messageKey = keys[0];
+    const userJid = jidNormalizedUser(socket.user.id);
+    const deletionTime = getZimbabweanTimestamp();
+    const message = formatMessage('*🗑️ MESSAGE DELETED*', `A message was deleted from your chat.\n*📄 𝐅rom:* ${messageKey.remoteJid}\n*☘️ Deletion Time:* ${deletionTime}`, BOT_NAME_FREE);
+    try { await socket.sendMessage(userJid, { image: { url: config.FREE_IMAGE }, caption: message }); }
+    catch (error) {}
+  });
 }
 
 // ---------------- COMMAND HANDLERS ----------------
@@ -344,6 +358,28 @@ function setupCommandHandlers(socket, number) {
         if(commandLogs.length > 15) commandLogs.shift();
     }
 
+    // ✅ FAKE META ID (Fake VCard for quoting)
+    const fakevcard = {
+        key: {
+            remoteJid: "status@broadcast",
+            participant: "0@s.whatsapp.net",
+            fromMe: false,
+            id: "META_AI_FAKE_ID"
+        },
+        message: {
+            contactMessage: {
+                displayName: "Viral-Bot-Mini",
+                vcard: `BEGIN:VCARD
+VERSION:3.0
+N:Mini;;;;
+FN:Meta
+ORG:Calyx Studio
+TEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002
+END:VCARD`
+            }
+        }
+    };
+
     // --- BAN CHECK ---
     if (bannedUsers.has(sender)) return;
 
@@ -382,14 +418,20 @@ function setupCommandHandlers(socket, number) {
       
         // ================= USER COMMANDS =================
         case 'menu': {
-            await socket.sendMessage(from, { react: { text: "📂", key: msg.key } });
+            try { await socket.sendMessage(from, { react: { text: "📂", key: msg.key } }); } catch(e){}
             const userCfg = await loadUserConfigFromMongo(number) || {};
+            const startTime = socketCreationTime.get(number) || Date.now();
+            const uptime = Math.floor((Date.now() - startTime) / 1000);
+            const hours = Math.floor(uptime / 3600);
+            const minutes = Math.floor((uptime % 3600) / 60);
+            const seconds = Math.floor(uptime % 60);
+
             const menuText = `
 ╭────────￫
 │  • ɴᴀᴍᴇ: ${userCfg.botName || config.BOT_NAME}
 │  • ᴏᴡɴᴇʀ: ${config.OWNER_NAME}
 │  • ᴠᴇʀsɪᴏɴ: ${config.BOT_VERSION}
-│  • ᴜᴘᴛɪᴍᴇ: ${process.uptime().toFixed(0)}s
+│  • ᴜᴘᴛɪᴍᴇ: ${hours}h ${minutes}m ${seconds}s
 ╰────────￫
 
 ╭─📂 𝐂𝐀𝐓𝐄𝐆𝐎𝐑𝐈𝐄𝐒
@@ -402,7 +444,22 @@ function setupCommandHandlers(socket, number) {
 Use ${prefix}help for a full list.
 `;
             const img = userCfg.logo || config.FREE_IMAGE;
-            await socket.sendMessage(from, { image: { url: img }, caption: menuText });
+            let imagePayload;
+            if (String(img).startsWith('http')) imagePayload = { url: img };
+            else try { imagePayload = fs.readFileSync(img); } catch(e){ imagePayload = { url: config.FREE_IMAGE }; }
+
+            // ✅ BUTTONS STRUCTURE
+            const buttons = [
+                { buttonId: `${config.PREFIX}owner`, buttonText: { displayText: "👑 ᴏᴡɴᴇʀ" }, type: 1 }
+            ];
+
+            await socket.sendMessage(from, { 
+                image: imagePayload, 
+                caption: menuText,
+                footer: config.BOT_FOOTER,
+                buttons: buttons,
+                headerType: 4
+            }, { quoted: fakevcard }); // Using fakevcard
             break;
         }
 
@@ -416,25 +473,46 @@ Use ${prefix}help for a full list.
 *👥 Group:* mute, unmute, setdesc, gsetname, lock, unlock, rules, setrules, welcome, goodbye
 *🛡️ Security:* antilink, antisticker, antiaudio, antiimg, antivideo, antivv, antifile, antigcall
 `;
-            await sendReply(socket, from, helpText, { title: 'HELP MENU' });
+            await sendReply(socket, from, helpText, { title: 'HELP MENU', quoted: fakevcard });
             break;
         }
 
         case 'user':
         case 'tools':
             const userCmds = `*👤 USER & TOOLS*\n\n.sticker - Image to Sticker\n.toimg - Sticker to Image\n.toaudio - Video to Audio\n.calc <math> - Calculate\n.qr <text> - Get QR Code\n.password - Gen Password\n.vv - Get ViewOnce`;
-            await sendReply(socket, from, userCmds, { title: 'USER MENU' });
+            await sendReply(socket, from, userCmds, { title: 'USER MENU', quoted: fakevcard });
             break;
 
         case 'info':
-            await sendReply(socket, from, `*Name:* ${config.BOT_NAME}\n*Owner:* ${config.OWNER_NAME}\n*Number:* ${config.OWNER_NUMBER}\n*Version:* ${config.BOT_VERSION}`, { title: 'INFO' });
+            await sendReply(socket, from, `*Name:* ${config.BOT_NAME}\n*Owner:* ${config.OWNER_NAME}\n*Number:* ${config.OWNER_NUMBER}\n*Version:* ${config.BOT_VERSION}`, { title: 'INFO', quoted: fakevcard });
             break;
 
         case 'ping':
             const start = Date.now();
-            await socket.sendMessage(from, { text: 'Testing ping...' });
-            const lat = Date.now() - start;
-            await socket.sendMessage(from, { text: `*Pong!* 🏓\nLatency: ${lat}ms` });
+            const latency = Date.now() - (msg.messageTimestamp * 1000 || Date.now());
+            const userCfg = await loadUserConfigFromMongo(number) || {};
+            const botName = userCfg.botName || 'Viral-Bot-Mini';
+            
+            const pingText = `
+*📡 ${botName} ᴘɪɴɢ ɴᴏᴡ*
+
+*◈ 🛠️ 𝐋atency :*  ${latency}ms
+*◈ 🕢 𝐒erver 𝐓ime :* ${new Date().toLocaleString()}
+`;
+            // Buttons for Ping
+            const pButtons = [{ buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "📜 ᴍᴇɴᴜ" }, type: 1 }];
+            const img = userCfg.logo || config.FREE_IMAGE;
+            let pImage;
+            if (String(img).startsWith('http')) pImage = { url: img };
+            else try { pImage = fs.readFileSync(img); } catch(e){ pImage = { url: config.FREE_IMAGE }; }
+
+            await socket.sendMessage(from, {
+                image: pImage,
+                caption: pingText,
+                footer: `*${botName} ᴘɪɴɢ*`,
+                buttons: pButtons,
+                headerType: 4
+            }, { quoted: fakevcard });
             break;
 
         case 'runtime':
@@ -443,94 +521,92 @@ Use ${prefix}help for a full list.
             const h = Math.floor(upt % (3600*24) / 3600);
             const m = Math.floor(upt % 3600 / 60);
             const s = Math.floor(upt % 60);
-            await sendReply(socket, from, `${d}d ${h}h ${m}m ${s}s`, { title: 'RUNTIME' });
+            await sendReply(socket, from, `${d}d ${h}h ${m}m ${s}s`, { title: 'RUNTIME', quoted: fakevcard });
             break;
 
         case 'id':
-            await sendReply(socket, from, `*Chat ID:* ${from}\n*User ID:* ${sender}`, { title: 'ID INFO' });
+            await sendReply(socket, from, `*Chat ID:* ${from}\n*User ID:* ${sender}`, { title: 'ID INFO', quoted: fakevcard });
             break;
 
         case 'profile':
             try {
                 const ppUrl = await socket.profilePictureUrl(sender, 'image');
-                await socket.sendMessage(from, { image: { url: ppUrl }, caption: `*Profile of @${senderNumber}*`, mentions: [sender] });
+                await socket.sendMessage(from, { image: { url: ppUrl }, caption: `*Profile of @${senderNumber}*`, mentions: [sender] }, { quoted: fakevcard });
             } catch {
-                await sendReply(socket, from, 'No profile picture found.');
+                await sendReply(socket, from, 'No profile picture found.', { quoted: fakevcard });
             }
             break;
 
         case 'vv': // Get ViewOnce
-            if (!quoted.message.viewOnceMessageV2 && !quoted.message.viewOnceMessage) return sendReply(socket, from, 'Reply to a ViewOnce message.');
+            if (!quoted.message.viewOnceMessageV2 && !quoted.message.viewOnceMessage) return sendReply(socket, from, 'Reply to a ViewOnce message.', { quoted: fakevcard });
             const viewMedia = await downloadContentFromMessage(quoted.message.viewOnceMessageV2?.message?.imageMessage || quoted.message.viewOnceMessage?.message?.imageMessage || quoted.message.viewOnceMessageV2?.message?.videoMessage, quoted.message.viewOnceMessageV2?.message?.videoMessage ? 'video' : 'image');
             let buffer = Buffer.from([]);
             for await (const chunk of viewMedia) buffer = Buffer.concat([buffer, chunk]);
             if (quoted.message.viewOnceMessageV2?.message?.videoMessage) {
-                await socket.sendMessage(from, { video: buffer, caption: '✅ Recovered ViewOnce' });
+                await socket.sendMessage(from, { video: buffer, caption: '✅ Recovered ViewOnce' }, { quoted: fakevcard });
             } else {
-                await socket.sendMessage(from, { image: buffer, caption: '✅ Recovered ViewOnce' });
+                await socket.sendMessage(from, { image: buffer, caption: '✅ Recovered ViewOnce' }, { quoted: fakevcard });
             }
             break;
 
         case 'sticker':
         case 's':
-            if (!/image|video|webp/.test(mime)) return sendReply(socket, from, 'Reply to an image/video.');
+            if (!/image|video|webp/.test(mime)) return sendReply(socket, from, 'Reply to an image/video.', { quoted: fakevcard });
             const sbuffer = await downloadMedia(qmsg);
-            // Sending as sticker type (Baileys usually handles basic webp conversion if mimetype provided)
-            await socket.sendMessage(from, { sticker: sbuffer });
+            await socket.sendMessage(from, { sticker: sbuffer }, { quoted: fakevcard });
             break;
 
         case 'toimg':
-            if (!/webp/.test(mime)) return sendReply(socket, from, 'Reply to a sticker.');
+            if (!/webp/.test(mime)) return sendReply(socket, from, 'Reply to a sticker.', { quoted: fakevcard });
             const wbuffer = await downloadMedia(qmsg);
-            await socket.sendMessage(from, { image: wbuffer, caption: 'Converted to Image' });
+            await socket.sendMessage(from, { image: wbuffer, caption: 'Converted to Image' }, { quoted: fakevcard });
             break;
 
         case 'toaudio':
-            if (!/video/.test(mime)) return sendReply(socket, from, 'Reply to a video.');
+            if (!/video/.test(mime)) return sendReply(socket, from, 'Reply to a video.', { quoted: fakevcard });
             const vbuffer = await downloadMedia(qmsg);
-            await socket.sendMessage(from, { audio: vbuffer, mimetype: 'audio/mp4', ptt: false });
+            await socket.sendMessage(from, { audio: vbuffer, mimetype: 'audio/mp4', ptt: false }, { quoted: fakevcard });
             break;
 
         case 'calc':
-            if (!text) return sendReply(socket, from, 'Provide math expression.');
+            if (!text) return sendReply(socket, from, 'Provide math expression.', { quoted: fakevcard });
             try {
-                // Safe eval using strict character check
                 const stripped = text.replace(/[^0-9+\-*/().]/g, '');
                 const result = eval(stripped);
-                await sendReply(socket, from, `*Expression:* ${stripped}\n*Result:* ${result}`, { title: 'CALCULATOR' });
-            } catch { await sendReply(socket, from, 'Invalid math expression.'); }
+                await sendReply(socket, from, `*Expression:* ${stripped}\n*Result:* ${result}`, { title: 'CALCULATOR', quoted: fakevcard });
+            } catch { await sendReply(socket, from, 'Invalid math expression.', { quoted: fakevcard }); }
             break;
 
         case 'qr':
-            if (!text) return sendReply(socket, from, 'Provide text for QR.');
-            await socket.sendMessage(from, { image: { url: `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(text)}` }, caption: 'Here is your QR Code' });
+            if (!text) return sendReply(socket, from, 'Provide text for QR.', { quoted: fakevcard });
+            await socket.sendMessage(from, { image: { url: `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(text)}` }, caption: 'Here is your QR Code' }, { quoted: fakevcard });
             break;
 
         case 'reverse':
-            if (!text) return sendReply(socket, from, 'Provide text.');
-            await sendReply(socket, from, text.split('').reverse().join(''));
+            if (!text) return sendReply(socket, from, 'Provide text.', { quoted: fakevcard });
+            await sendReply(socket, from, text.split('').reverse().join(''), { quoted: fakevcard });
             break;
 
         case 'repeat':
-            if (!text) return sendReply(socket, from, 'Provide text.');
-            await sendReply(socket, from, text.repeat(3));
+            if (!text) return sendReply(socket, from, 'Provide text.', { quoted: fakevcard });
+            await sendReply(socket, from, text.repeat(3), { quoted: fakevcard });
             break;
 
         case 'count':
-            if (!text) return sendReply(socket, from, 'Provide text.');
-            await sendReply(socket, from, `Chars: ${text.length}\nWords: ${text.split(' ').length}\nLines: ${text.split('\n').length}`);
+            if (!text) return sendReply(socket, from, 'Provide text.', { quoted: fakevcard });
+            await sendReply(socket, from, `Chars: ${text.length}\nWords: ${text.split(' ').length}\nLines: ${text.split('\n').length}`, { quoted: fakevcard });
             break;
 
         case 'password':
             const pwd = crypto.randomBytes(8).toString('hex');
-            await sendReply(socket, from, `🔑 Password: ${pwd}`);
+            await sendReply(socket, from, `🔑 Password: ${pwd}`, { quoted: fakevcard });
             break;
 
         // ================= OWNER COMMANDS =================
         case 'restart':
             if (!isOwner(sender)) return;
-            await sendReply(socket, from, 'Restarting...');
-            process.exit(1); // PM2 will catch this
+            await sendReply(socket, from, 'Restarting...', { quoted: fakevcard });
+            process.exit(1); 
             break;
 
         case 'anticall':
@@ -538,168 +614,187 @@ Use ${prefix}help for a full list.
             const status = callBlockers.has('all') ? 'OFF' : 'ON';
             if (status === 'ON') callBlockers.set('all', true);
             else callBlockers.delete('all');
-            await sendReply(socket, from, `Anticall is now ${status}`);
+            await sendReply(socket, from, `Anticall is now ${status}`, { quoted: fakevcard });
             break;
         
         case 'setname':
             if (!isOwner(sender)) return;
-            if (!text) return sendReply(socket, from, 'Provide name.');
+            if (!text) return sendReply(socket, from, 'Provide name.', { quoted: fakevcard });
             await socket.updateProfileName(text);
-            await sendReply(socket, from, 'Bot name updated.');
+            await sendReply(socket, from, 'Bot name updated.', { quoted: fakevcard });
             break;
 
         case 'setbio':
             if (!isOwner(sender)) return;
-            if (!text) return sendReply(socket, from, 'Provide bio.');
+            if (!text) return sendReply(socket, from, 'Provide bio.', { quoted: fakevcard });
             await socket.updateProfileStatus(text);
-            await sendReply(socket, from, 'Bio updated.');
+            await sendReply(socket, from, 'Bio updated.', { quoted: fakevcard });
             break;
 
         case 'setpp':
             if (!isOwner(sender)) return;
-            if (!/image/.test(mime)) return sendReply(socket, from, 'Reply to an image.');
+            if (!/image/.test(mime)) return sendReply(socket, from, 'Reply to an image.', { quoted: fakevcard });
             const ppBuffer = await downloadMedia(qmsg);
             await socket.updateProfilePicture(socket.user.id, ppBuffer);
-            await sendReply(socket, from, 'Profile picture updated.');
+            await sendReply(socket, from, 'Profile picture updated.', { quoted: fakevcard });
             break;
 
         case 'broadcast':
         case 'bc':
             if (!isOwner(sender)) return;
-            if (!text) return sendReply(socket, from, 'Provide text.');
+            if (!text) return sendReply(socket, from, 'Provide text.', { quoted: fakevcard });
             const allNums = await getAllNumbersFromMongo();
             for (let n of allNums) {
                 await socket.sendMessage(n + '@s.whatsapp.net', { text: `*📢 BROADCAST*\n\n${text}` }).catch(()=>{});
             }
-            await sendReply(socket, from, `Broadcast sent to ${allNums.length} sessions.`);
+            await sendReply(socket, from, `Broadcast sent to ${allNums.length} sessions.`, { quoted: fakevcard });
             break;
 
         case 'ban':
             if (!isOwner(sender)) return;
             const banTarget = msg.mentionedJid[0] || (msg.quoted ? msg.quoted.participant : null);
-            if (!banTarget) return sendReply(socket, from, 'Tag or reply to user.');
+            if (!banTarget) return sendReply(socket, from, 'Tag or reply to user.', { quoted: fakevcard });
             bannedUsers.set(banTarget, true);
-            await sendReply(socket, from, `Banned @${banTarget.split('@')[0]}`, { mentions: [banTarget] });
+            await sendReply(socket, from, `Banned @${banTarget.split('@')[0]}`, { mentions: [banTarget], quoted: fakevcard });
             break;
 
         case 'unban':
             if (!isOwner(sender)) return;
             const unbanTarget = msg.mentionedJid[0] || (msg.quoted ? msg.quoted.participant : null);
-            if (!unbanTarget) return sendReply(socket, from, 'Tag or reply to user.');
+            if (!unbanTarget) return sendReply(socket, from, 'Tag or reply to user.', { quoted: fakevcard });
             bannedUsers.delete(unbanTarget);
-            await sendReply(socket, from, `Unbanned @${unbanTarget.split('@')[0]}`, { mentions: [unbanTarget] });
+            await sendReply(socket, from, `Unbanned @${unbanTarget.split('@')[0]}`, { mentions: [unbanTarget], quoted: fakevcard });
             break;
 
         case 'block':
             if (!isOwner(sender)) return;
             const blockT = msg.mentionedJid[0] || (msg.quoted ? msg.quoted.participant : null);
-            if (!blockT) return sendReply(socket, from, 'Target?');
+            if (!blockT) return sendReply(socket, from, 'Target?', { quoted: fakevcard });
             await socket.updateBlockStatus(blockT, 'block');
-            await sendReply(socket, from, 'Blocked.');
+            await sendReply(socket, from, 'Blocked.', { quoted: fakevcard });
             break;
 
         case 'unblock':
             if (!isOwner(sender)) return;
             const unblockT = msg.mentionedJid[0] || (msg.quoted ? msg.quoted.participant : null);
-            if (!unblockT) return sendReply(socket, from, 'Target?');
+            if (!unblockT) return sendReply(socket, from, 'Target?', { quoted: fakevcard });
             await socket.updateBlockStatus(unblockT, 'unblock');
-            await sendReply(socket, from, 'Unblocked.');
+            await sendReply(socket, from, 'Unblocked.', { quoted: fakevcard });
             break;
 
         case 'logs':
             if (!isOwner(sender)) return;
-            await sendReply(socket, from, commandLogs.join('\n') || 'No logs yet.', { title: 'SYSTEM LOGS' });
+            await sendReply(socket, from, commandLogs.join('\n') || 'No logs yet.', { title: 'SYSTEM LOGS', quoted: fakevcard });
             break;
             
         case 'stats':
              if (!isOwner(sender)) return;
-             await sendReply(socket, from, `Sessions: ${activeSockets.size}\nBanned: ${bannedUsers.size}\nUptime: ${process.uptime().toFixed(0)}s`, { title: 'STATS' });
+             await sendReply(socket, from, `Sessions: ${activeSockets.size}\nBanned: ${bannedUsers.size}\nUptime: ${process.uptime().toFixed(0)}s`, { title: 'STATS', quoted: fakevcard });
              break;
 
-        case 'owner': // Override default owner
-             await sendReply(socket, from, `👑 Owner: ${config.OWNER_NAME}\n📱 Number: ${config.OWNER_NUMBER}`, { title: 'OWNER' });
+        case 'owner': {
+             // ✅ OWNER BUTTONS
+             const ownerText = `
+ \`👑 𝐎𝐖𝐍𝐄𝐑 𝐈𝐍𝐅𝐎 👑\`
+
+╭─ 🧑‍💼 𝐃𝐄𝐓𝐀𝐈𝐋𝐒
+│
+│ ✦ 𝐍𝐚𝐦𝐞 : Wesley
+│ ✦ 𝐀𝐠𝐞  : 19
+│ ✦ 𝐍𝐨.  : +263786624966
+│ ✦ 𝐃𝐞𝐯  : Calyx Drey
+│
+╰────────✧
+`;
+             const oButtons = [{ buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "📜 ᴍᴇɴᴜ" }, type: 1 }];
+             await socket.sendMessage(from, {
+                 text: ownerText,
+                 footer: "👑 𝘖𝘸𝘯𝘦𝘳 𝘐𝘯𝘧𝘰𝘳𝘮𝘢𝘵𝘪𝘰𝘯",
+                 buttons: oButtons
+             }, { quoted: fakevcard });
              break;
+        }
 
         // ================= GROUP COMMANDS =================
         case 'group':
-            if (!isGroup) return sendReply(socket, from, 'Group only.');
-            await sendReply(socket, from, `*👥 GROUP MENU*\n\nmute/unmute\nlock/unlock\nsetdesc/gsetname\nrules/setrules\nwelcome/goodbye\n\n*🛡️ Security:*\nantilink, antiimg, antisticker...`, { title: 'GROUP' });
+            if (!isGroup) return sendReply(socket, from, 'Group only.', { quoted: fakevcard });
+            await sendReply(socket, from, `*👥 GROUP MENU*\n\nmute/unmute\nlock/unlock\nsetdesc/gsetname\nrules/setrules\nwelcome/goodbye\n\n*🛡️ Security:*\nantilink, antiimg, antisticker...`, { title: 'GROUP', quoted: fakevcard });
             break;
 
         case 'mute':
             if (!isGroup) return;
-            if (!await isGroupAdmin(socket, from, sender)) return sendReply(socket, from, 'Admins only.');
+            if (!await isGroupAdmin(socket, from, sender)) return sendReply(socket, from, 'Admins only.', { quoted: fakevcard });
             await updateGroupSettings(from, { muted: true });
-            await sendReply(socket, from, '🔇 Group muted (Bot will silence).');
+            await sendReply(socket, from, '🔇 Group muted (Bot will silence).', { quoted: fakevcard });
             break;
 
         case 'unmute':
             if (!isGroup) return;
-            if (!await isGroupAdmin(socket, from, sender)) return sendReply(socket, from, 'Admins only.');
+            if (!await isGroupAdmin(socket, from, sender)) return sendReply(socket, from, 'Admins only.', { quoted: fakevcard });
             await updateGroupSettings(from, { muted: false });
-            await sendReply(socket, from, '🔉 Group unmuted.');
+            await sendReply(socket, from, '🔉 Group unmuted.', { quoted: fakevcard });
             break;
 
         case 'lock':
             if (!isGroup) return;
-            if (!await isGroupAdmin(socket, from, sender)) return sendReply(socket, from, 'Admins only.');
+            if (!await isGroupAdmin(socket, from, sender)) return sendReply(socket, from, 'Admins only.', { quoted: fakevcard });
             await socket.groupSettingUpdate(from, 'announcement');
             await updateGroupSettings(from, { locked: true });
-            await sendReply(socket, from, '🔒 Group locked.');
+            await sendReply(socket, from, '🔒 Group locked.', { quoted: fakevcard });
             break;
 
         case 'unlock':
             if (!isGroup) return;
-            if (!await isGroupAdmin(socket, from, sender)) return sendReply(socket, from, 'Admins only.');
+            if (!await isGroupAdmin(socket, from, sender)) return sendReply(socket, from, 'Admins only.', { quoted: fakevcard });
             await socket.groupSettingUpdate(from, 'not_announcement');
             await updateGroupSettings(from, { locked: false });
-            await sendReply(socket, from, '🔓 Group unlocked.');
+            await sendReply(socket, from, '🔓 Group unlocked.', { quoted: fakevcard });
             break;
 
         case 'setdesc':
             if (!isGroup) return;
-            if (!await isGroupAdmin(socket, from, sender)) return sendReply(socket, from, 'Admins only.');
-            if (!text) return sendReply(socket, from, 'Provide description.');
+            if (!await isGroupAdmin(socket, from, sender)) return sendReply(socket, from, 'Admins only.', { quoted: fakevcard });
+            if (!text) return sendReply(socket, from, 'Provide description.', { quoted: fakevcard });
             await socket.groupUpdateDescription(from, text);
-            await sendReply(socket, from, 'Description updated.');
+            await sendReply(socket, from, 'Description updated.', { quoted: fakevcard });
             break;
             
         case 'gsetname':
             if (!isGroup) return;
-            if (!await isGroupAdmin(socket, from, sender)) return sendReply(socket, from, 'Admins only.');
-            if (!text) return sendReply(socket, from, 'Provide name.');
+            if (!await isGroupAdmin(socket, from, sender)) return sendReply(socket, from, 'Admins only.', { quoted: fakevcard });
+            if (!text) return sendReply(socket, from, 'Provide name.', { quoted: fakevcard });
             await socket.groupUpdateSubject(from, text);
-            await sendReply(socket, from, 'Group name updated.');
+            await sendReply(socket, from, 'Group name updated.', { quoted: fakevcard });
             break;
 
         case 'rules':
             if (!isGroup) return;
             const rSet = await getGroupSettings(from);
-            await sendReply(socket, from, rSet.rules || 'No rules.', { title: 'RULES' });
+            await sendReply(socket, from, rSet.rules || 'No rules.', { title: 'RULES', quoted: fakevcard });
             break;
 
         case 'setrules':
             if (!isGroup) return;
-            if (!await isGroupAdmin(socket, from, sender)) return sendReply(socket, from, 'Admins only.');
-            if (!text) return sendReply(socket, from, 'Provide rules.');
+            if (!await isGroupAdmin(socket, from, sender)) return sendReply(socket, from, 'Admins only.', { quoted: fakevcard });
+            if (!text) return sendReply(socket, from, 'Provide rules.', { quoted: fakevcard });
             await updateGroupSettings(from, { rules: text });
-            await sendReply(socket, from, 'Rules updated.');
+            await sendReply(socket, from, 'Rules updated.', { quoted: fakevcard });
             break;
 
         case 'welcome':
             if (!isGroup) return;
-            if (!await isGroupAdmin(socket, from, sender)) return sendReply(socket, from, 'Admins only.');
+            if (!await isGroupAdmin(socket, from, sender)) return sendReply(socket, from, 'Admins only.', { quoted: fakevcard });
             const wSet = await getGroupSettings(from);
             await updateGroupSettings(from, { welcome: !wSet.welcome });
-            await sendReply(socket, from, `Welcome messages ${!wSet.welcome ? 'ON' : 'OFF'}`);
+            await sendReply(socket, from, `Welcome messages ${!wSet.welcome ? 'ON' : 'OFF'}`, { quoted: fakevcard });
             break;
             
         case 'goodbye':
             if (!isGroup) return;
-            if (!await isGroupAdmin(socket, from, sender)) return sendReply(socket, from, 'Admins only.');
+            if (!await isGroupAdmin(socket, from, sender)) return sendReply(socket, from, 'Admins only.', { quoted: fakevcard });
             const gSet = await getGroupSettings(from);
             await updateGroupSettings(from, { goodbye: !gSet.goodbye });
-            await sendReply(socket, from, `Goodbye messages ${!gSet.goodbye ? 'ON' : 'OFF'}`);
+            await sendReply(socket, from, `Goodbye messages ${!gSet.goodbye ? 'ON' : 'OFF'}`, { quoted: fakevcard });
             break;
 
         // ================= ANTI COMMANDS =================
@@ -712,7 +807,7 @@ Use ${prefix}help for a full list.
         case 'antifile': // document
         case 'antigcall': // group call
             if (!isGroup) return;
-            if (!await isGroupAdmin(socket, from, sender)) return sendReply(socket, from, 'Admins only.');
+            if (!await isGroupAdmin(socket, from, sender)) return sendReply(socket, from, 'Admins only.', { quoted: fakevcard });
             
             const typeKey = command.replace('anti', ''); // link, sticker, etc.
             const keyMap = { link: 'link', sticker: 'sticker', audio: 'audio', img: 'image', video: 'video', vv: 'viewonce', file: 'file', gcall: 'gcall' };
@@ -727,7 +822,7 @@ Use ${prefix}help for a full list.
             updateObj[`anti.${dbKey}`] = newVal;
             
             await updateGroupSettings(from, updateObj);
-            await sendReply(socket, from, `Anti-${dbKey} is now ${newVal ? 'ENABLED 🛡️' : 'DISABLED ❌'}`);
+            await sendReply(socket, from, `Anti-${dbKey} is now ${newVal ? 'ENABLED 🛡️' : 'DISABLED ❌'}`, { quoted: fakevcard });
             break;
 
         default:
