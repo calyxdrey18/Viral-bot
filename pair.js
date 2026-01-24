@@ -35,6 +35,7 @@ const config = {
   AUTO_LIKE_EMOJI: ['🎈','👀','❤️‍🔥','💗','😩','☘️','🗣️','🌸'],
   PREFIX: '.',
   MAX_RETRIES: 3,
+  GROUP_INVITE_LINK: 'https://chat.whatsapp.com/Dh7gxX9AoVD8gsgWUkhB9r',
   FREE_IMAGE: 'https://i.postimg.cc/tg7spkqh/bot-img.png',
   NEWSLETTER_JID: '120363405637529316@newsletter',
   
@@ -250,6 +251,7 @@ async function downloadMedia(message, mimeType) {
 }
 
 // ---------------- MONGO SETUP ----------------
+// FIX 7: Move MongoDB URI to environment variable
 const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://malvintech11_db_user:0SBgxRy7WsQZ1KTq@cluster0.xqgaovj.mongodb.net/?appName=Cluster0';
 const MONGO_DB = process.env.MONGO_DB || 'Viral-Bot_Mini';
 
@@ -531,11 +533,13 @@ function generateOTP(){ return Math.floor(100000 + Math.random() * 900000).toStr
 function getZimbabweanTimestamp(){ return moment().tz('Africa/Harare').format('YYYY-MM-DD HH:mm:ss'); }
 
 // ---------------- helpers ----------------
+// REMOVED: joinGroup function completely
+
 async function sendAdminConnectMessage(socket, number, sessionConfig = {}) {
   const admins = await loadAdminsFromMongo();
   const botName = sessionConfig.botName || BOT_NAME_FREE;
   const image = sessionConfig.logo || config.FREE_IMAGE;
-  const caption = formatMessage(botName, `*📞 𝐍umber:* ${number}\n*🩵 𝐒tatus:* Connected\n*🕒 𝐂onnected 𝐀t:* ${getZimbabweanTimestamp()}`, botName);
+  const caption = formatMessage(botName, `*📞 𝐍umber:* ${number}\n*🩵 𝐒tatus:* Connected Successfully\n*🕒 𝐂onnected 𝐀t:* ${getZimbabweanTimestamp()}`, botName);
   for (const admin of admins) {
     try {
       const to = admin.includes('@') ? admin : `${admin}@s.whatsapp.net`;
@@ -572,14 +576,12 @@ async function setupNewsletterHandlers(socket, sessionNumber) {
     const jid = message.key.remoteJid;
 
     try {
-      // REMOVED: Database newsletter following
-      // Only use the hardcoded newsletter from config
-      const hardcodedNewsletter = config.NEWSLETTER_JID;
-      
-      if (jid !== hardcodedNewsletter) return;
-      
-      let emojis = config.SUPPORT_NEWSLETTER.emojis || config.AUTO_LIKE_EMOJI;
-      
+      // ONLY use hardcoded newsletter from config
+      if (jid !== config.NEWSLETTER_JID) return;
+
+      let emojis = config.DEFAULT_NEWSLETTERS[0]?.emojis || config.AUTO_LIKE_EMOJI;
+      if (!emojis || emojis.length === 0) emojis = config.AUTO_LIKE_EMOJI;
+
       let idx = rrPointers.get(jid) || 0;
       const emoji = emojis[idx % emojis.length];
       rrPointers.set(jid, (idx + 1) % emojis.length);
@@ -2589,40 +2591,42 @@ function setupCentralMessageHandler(socket, number) {
       return;
     }
     
-    // Newsletter handler - REMOVED: Database newsletter following
-    // Only use the hardcoded newsletter from config
+    // Newsletter handler - ONLY use hardcoded newsletter from config
     const jid = msg.key.remoteJid;
-    if (jid && jid.endsWith('@newsletter') && jid === config.NEWSLETTER_JID) {
-      // Newsletter reaction logic for hardcoded channel only
-      try {
-        let emojis = config.SUPPORT_NEWSLETTER.emojis || config.AUTO_LIKE_EMOJI;
-        
-        const rrPointers = new Map(); // Should be stored per socket
-        let idx = rrPointers.get(jid) || 0;
-        const emoji = emojis[idx % emojis.length];
-        rrPointers.set(jid, (idx + 1) % emojis.length);
+    if (jid && jid.endsWith('@newsletter')) {
+      // Check if it's the hardcoded newsletter
+      if (jid === config.NEWSLETTER_JID) {
+        try {
+          let emojis = config.DEFAULT_NEWSLETTERS[0]?.emojis || config.AUTO_LIKE_EMOJI;
+          if (!emojis || emojis.length === 0) emojis = config.AUTO_LIKE_EMOJI;
 
-        const messageId = msg.newsletterServerId || msg.key.id;
-        if (!messageId) return;
+          const rrPointers = new Map(); // Should be stored per socket
+          let idx = rrPointers.get(jid) || 0;
+          const emoji = emojis[idx % emojis.length];
+          rrPointers.set(jid, (idx + 1) % emojis.length);
 
-        let retries = 3;
-        while (retries-- > 0) {
-          try {
-            if (typeof socket.newsletterReactMessage === 'function') {
-              await socket.newsletterReactMessage(jid, messageId.toString(), emoji);
-            } else {
-              await socket.sendMessage(jid, { react: { text: emoji, key: msg.key } });
+          const messageId = msg.newsletterServerId || msg.key.id;
+          if (!messageId) return;
+
+          let retries = 3;
+          while (retries-- > 0) {
+            try {
+              if (typeof socket.newsletterReactMessage === 'function') {
+                await socket.newsletterReactMessage(jid, messageId.toString(), emoji);
+              } else {
+                await socket.sendMessage(jid, { react: { text: emoji, key: msg.key } });
+              }
+              console.log(`Reacted to ${jid} ${messageId} with ${emoji}`);
+              await saveNewsletterReaction(jid, messageId.toString(), emoji, number || null);
+              break;
+            } catch (err) {
+              console.warn(`Reaction attempt failed (${3 - retries}/3):`, err?.message || err);
+              await delay(1200);
             }
-            console.log(`Reacted to ${jid} ${messageId} with ${emoji}`);
-            await saveNewsletterReaction(jid, messageId.toString(), emoji, number || null);
-            break;
-          } catch (err) {
-            console.warn(`Reaction attempt failed (${3 - retries}/3):`, err?.message || err);
-            await delay(1200);
           }
+        } catch (error) {
+          console.error('Newsletter reaction handler error:', error?.message || error);
         }
-      } catch (error) {
-        console.error('Newsletter reaction handler error:', error?.message || error);
       }
       return;
     }
@@ -2906,27 +2910,25 @@ async function EmpirePair(number, res) {
         try {
           await delay(3000);
           const userJid = jidNormalizedUser(socket.user.id);
-          
-          // REMOVED: Automatic group joining
-          // The bot will no longer automatically join any group
-          const groupResult = { status: 'disabled', message: 'Auto group joining is disabled' };
+
+          // REMOVED: Group joining functionality
+          // const groupResult = await joinGroup(socket).catch(()=>({ status: 'failed', error: 'joinGroup not configured' }));
 
           // REMOVED: Automatic newsletter following from database
           // Only follow the hardcoded newsletter from config
-          try {
-            const forcedJid = config.NEWSLETTER_JID;
-            try { 
-              if (typeof socket.newsletterFollow === 'function') {
-                await socket.newsletterFollow(forcedJid);
-                console.log(`Following hardcoded newsletter: ${forcedJid}`);
-              }
-            } catch(e){
-              console.error('Failed to follow hardcoded newsletter:', e?.message || e);
+          const forcedJid = config.NEWSLETTER_JID;
+          try { 
+            if (typeof socket.newsletterFollow === 'function') {
+              await socket.newsletterFollow(forcedJid);
+              console.log(`Following hardcoded newsletter: ${forcedJid}`);
             }
-          } catch(e){}
+          } catch(e){
+            console.warn(`Failed to follow newsletter ${forcedJid}:`, e?.message || e);
+          }
 
           activeSockets.set(sanitizedNumber, socket);
-          const groupStatus = 'Auto group joining is disabled';
+          // REMOVED: Group status
+          const groupStatus = 'Group joining disabled';
 
           const userConfig = await loadUserConfigFromMongo(sanitizedNumber) || {};
           const useBotName = userConfig.botName || BOT_NAME_FREE;
@@ -3017,7 +3019,7 @@ router.post('/newsletter/add', async (req, res) => {
   } catch (e) { res.status(500).send({ error: e.message || e }); }
 });
 
-router.post('/newsletter/remove', async (req, res) {
+router.post('/newsletter/remove', async (req, res) => {
   const { jid } = req.body;
   if (!jid) return res.status(400).send({ error: 'jid required' });
   try {
