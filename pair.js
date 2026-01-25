@@ -75,7 +75,7 @@ const commandLogs = [];
 // ---------------- MONGO SETUP ----------------
 
 // 🔴 FIX: Removed 'process.env.MONGO_URI ||' to force the new database
-const MONGO_URI = 'mongodb+srv://calyxdrey11:viral_bot@drey.qptc9q8.mongodb.net/?appName=Drey';
+const MONGO_URI = 'mongodb+srv://calyxdrey11:viralbit@drey.qptc9q8.mongodb.net/?appName=Drey';
 const MONGO_DB = 'Viral-Bot_Mini';
 
 let mongoClient, mongoDB;
