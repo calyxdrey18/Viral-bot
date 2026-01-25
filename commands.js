@@ -31,27 +31,6 @@ END:VCARD`
     }
 };
 
-// ---------------- FONT HELPERS ----------------
-
-// Helper to convert text to Bold Sans (Viral Header Style)
-const fontBoldSans = (text) => {
-    const map = {
-        'A': '𝗔', 'B': '𝗕', 'C': '𝗖', 'D': '𝗗', 'E': '𝗘', 'F': '𝗙', 'G': '𝗚', 'H': '𝗛', 'I': '𝗜', 'J': '𝗝', 'K': '𝗞', 'L': '𝗟', 'M': '𝗠', 'N': '𝗡', 'O': '𝗢', 'P': '𝗣', 'Q': '𝗤', 'R': '𝗥', 'S': '𝗦', 'T': '𝗧', 'U': '𝗨', 'V': '𝗩', 'W': '𝗪', 'X': '𝗫', 'Y': '𝗬', 'Z': '𝗭',
-        'a': '𝗮', 'b': '𝗯', 'c': '𝗰', 'd': '𝗱', 'e': '𝗲', 'f': '𝗳', 'g': '𝗴', 'h': '𝗵', 'i': '𝗶', 'j': '𝗷', 'k': '𝗸', 'l': '𝗹', 'm': '𝗺', 'n': '𝗻', 'o': '𝗼', 'p': '𝗽', 'q': '𝗾', 'r': '𝗿', 's': '𝘀', 't': '𝘁', 'u': '𝘂', 'v': '𝘃', 'w': '𝘄', 'x': '𝘅', 'y': '𝘆', 'z': '𝘇',
-        '0': '𝟬', '1': '𝟭', '2': '𝟮', '3': '𝟯', '4': '𝟰', '5': '𝟱', '6': '𝟲', '7': '𝟳', '8': '𝟴', '9': '𝟵'
-    };
-    return text.split('').map(char => map[char] || char).join('');
-};
-
-// Helper to convert text to Small Caps (Viral Content Style)
-const toSmallCaps = (text) => {
-    const map = {
-        'a': 'ᴀ', 'b': 'ʙ', 'c': 'ᴄ', 'd': 'ᴅ', 'e': 'ᴇ', 'f': 'ғ', 'g': 'ɢ', 'h': 'ʜ', 'i': 'ɪ', 'j': 'ᴊ', 'k': 'ᴋ', 'l': 'ʟ', 'm': 'ᴍ', 'n': 'ɴ', 'o': 'ᴏ', 'p': 'ᴘ', 'q': 'ǫ', 'r': 'ʀ', 's': 's', 't': 'ᴛ', 'u': 'ᴜ', 'v': 'ᴠ', 'w': 'ᴡ', 'x': 'x', 'y': 'ʏ', 'z': 'ᴢ',
-        'A': 'ᴀ', 'B': 'ʙ', 'C': 'ᴄ', 'D': 'ᴅ', 'E': 'ᴇ', 'F': 'ғ', 'G': 'ɢ', 'H': 'ʜ', 'I': 'ɪ', 'J': 'ᴊ', 'K': 'ᴋ', 'L': 'ʟ', 'M': 'ᴍ', 'N': 'ɴ', 'O': 'ᴏ', 'P': 'ᴘ', 'Q': 'ǫ', 'R': 'ʀ', 'S': 's', 'T': 'ᴛ', 'U': 'ᴜ', 'V': 'ᴠ', 'W': 'ᴡ', 'X': 'x', 'Y': 'ʏ', 'Z': 'ᴢ'
-    };
-    return text.split('').map(char => map[char] || char).join('');
-};
-
 // --- Helper: Download Media ---
 const downloadMedia = async (msg) => {
     try {
@@ -64,71 +43,58 @@ const downloadMedia = async (msg) => {
 };
 
 // --- Helper: Viral Box Formatter ---
-const formatViralBox = (title, lines) => {
-    const header = `╭─📂 ${fontBoldSans(title.toUpperCase())}`;
-    let content = '';
-    
-    // Normalize input to array
-    const linesArray = Array.isArray(lines) ? lines : lines.toString().split('\n');
-    
-    linesArray.forEach(line => {
-        if (line && line.trim()) content += `│ ${line.trim()}\n`;
+const formatViralBox = (title, text) => {
+    const lines = text.trim().split('\n');
+    let box = `╭─📂 𝗕𝗢𝗟𝗗 ${title.toUpperCase()} 𝗕𝗢𝗟𝗗\n`;
+    lines.forEach(line => {
+        if (line.trim()) box += `│ ${line.trim()}\n`;
     });
-    
-    const footer = `╰──────────￫`;
-    return `${header}\n${content}${footer}`;
+    box += `╰──────────￫`;
+    return box;
 };
 
-// --- Helper: Send Styled Reply ---
+// --- Helper: Send Styled Reply (Image + Caption) ---
 const sendReply = async (socket, from, text, ctx, options = {}) => {
     const { config, mongo } = ctx;
-    
-    // SAFELY get the bot number
-    let number;
-    try {
-        number = jidNormalizedUser(socket.user.id).split(':')[0];
-    } catch (e) {
-        number = config.OWNER_NUMBER; // Fallback if socket.user is not ready
-    }
+    const number = socket.user.id.split(':')[0];
     
     // Fetch user config for custom logo
     const userCfg = await mongo.loadUserConfigFromMongo(number) || {};
     const imgSource = userCfg.logo || config.FREE_IMAGE;
     
-    // Create Viral Styled Text
-    let styledText = "";
-    if (options.isRaw) {
-        styledText = text; // Pass through already formatted text
+    // Apply Viral Formatting
+    const title = options.title || 'BOT NOTICE';
+    const styledText = formatViralBox(title, text);
+
+    let imagePayload;
+    if (String(imgSource).startsWith('http')) {
+        imagePayload = { url: imgSource };
     } else {
-        const title = options.title || 'BOT NOTICE';
-        styledText = formatViralBox(title, text);
-    }
-
-    // Determine if we need an image (default true unless explicitly false)
-    const useImage = options.useImage !== false; 
-
-    if (useImage) {
-        let imagePayload;
-        if (String(imgSource).startsWith('http')) {
-            imagePayload = { url: imgSource };
-        } else {
-            try { imagePayload = fs.readFileSync(imgSource); } 
-            catch (e) { imagePayload = { url: config.FREE_IMAGE }; }
+        try { 
+            imagePayload = fs.readFileSync(imgSource); 
+        } catch (e) { 
+            imagePayload = { url: config.FREE_IMAGE }; 
         }
-
-        return socket.sendMessage(from, { 
-            image: imagePayload,
-            caption: styledText,
-            footer: '> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ',
-            buttons: options.buttons || [],
-            headerType: 4
-        }, { quoted: options.quoted || fakevcard });
-    } else {
-        // Text-only reply
-        return socket.sendMessage(from, { 
-            text: styledText + '\n\n> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ'
-        }, { quoted: options.quoted || fakevcard });
     }
+
+    return socket.sendMessage(from, { 
+        image: imagePayload,
+        caption: styledText,
+        footer: '> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ',
+        headerType: 4
+    }, { quoted: options.quoted || fakevcard });
+};
+
+// --- Helper: Send Text Only Reply ---
+const sendTextReply = async (socket, from, text, ctx, options = {}) => {
+    const title = options.title || 'BOT NOTICE';
+    const styledText = formatViralBox(title, text);
+    
+    return socket.sendMessage(from, { 
+        text: styledText,
+        footer: '> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ',
+        headerType: 1
+    }, { quoted: options.quoted || fakevcard });
 };
 
 /**
@@ -136,51 +102,46 @@ const sendReply = async (socket, from, text, ctx, options = {}) => {
  */
 module.exports = async function handleCommand(socket, msg, ctx) {
     const { config, mongo, store } = ctx;
-    const { bannedUsers, socketCreationTime, commandLogs } = store;
+    const { bannedUsers, callBlockers, socketCreationTime, commandLogs } = store;
 
     if (!msg.message) return;
 
-    // 1. Message Normalization & Body Extraction
-    // We handle buttons, list replies, and normal text here
+    // 1. Message Normalization
     const messageContent = (getContentType(msg.message) === 'ephemeralMessage') ? msg.message.ephemeralMessage.message : msg.message;
     const type = getContentType(messageContent);
     const from = msg.key.remoteJid;
     const isGroup = from.endsWith('@g.us');
-
-    // Robust Body Extraction
-    let body = '';
-    if (type === 'conversation') body = messageContent.conversation;
-    else if (type === 'extendedTextMessage') body = messageContent.extendedTextMessage.text;
-    else if (type === 'imageMessage') body = messageContent.imageMessage.caption;
-    else if (type === 'videoMessage') body = messageContent.videoMessage.caption;
-    else if (type === 'buttonsResponseMessage') body = messageContent.buttonsResponseMessage.selectedButtonId;
-    else if (type === 'templateButtonReplyMessage') body = messageContent.templateButtonReplyMessage.selectedId;
-    else if (type === 'listResponseMessage') body = messageContent.listResponseMessage.singleSelectReply.selectedRowId;
-    else if (type === 'viewOnceMessage') body = messageContent.viewOnceMessage?.message?.imageMessage?.caption || '';
-
-    if (!body || typeof body !== 'string') return;
 
     // 2. Sender Identification
     const sender = isGroup ? (msg.key.participant || msg.participant) : msg.key.remoteJid;
     const senderNumber = sender.split('@')[0];
     const isOwner = senderNumber === config.OWNER_NUMBER.replace(/[^0-9]/g, '');
 
-    // 3. Command Parsing
+    // 3. Body Extraction
+    const body = (type === 'conversation') ? messageContent.conversation :
+        (type === 'extendedTextMessage') ? messageContent.extendedTextMessage.text :
+        (type === 'imageMessage') ? messageContent.imageMessage.caption :
+        (type === 'videoMessage') ? messageContent.videoMessage.caption :
+        (type === 'buttonsResponseMessage') ? messageContent.buttonsResponseMessage?.selectedButtonId :
+        (type === 'listResponseMessage') ? messageContent.listResponseMessage?.singleSelectReply?.selectedRowId :
+        (type === 'viewOnceMessage') ? (messageContent.viewOnceMessage?.message?.imageMessage?.caption || '') : '';
+
+    if (!body || typeof body !== 'string') return;
+
+    // 4. Command Parsing
     const prefix = config.PREFIX;
-    // Allow buttons (which might already have prefix) to work
     const isCmd = body.startsWith(prefix);
     const command = isCmd ? body.slice(prefix.length).trim().split(' ').shift().toLowerCase() : '';
     const args = body.trim().split(/ +/).slice(1);
     const text = args.join(" ");
     
-    // 4. Quoted Message Helper
     const quoted = msg.quoted ? msg.quoted : msg;
     const qmsg = (msg.quoted ? msg.quoted.message : messageContent);
     const mime = (qmsg.msg || qmsg).mimetype || '';
 
     // --- LOGGING ---
     if (isCmd) {
-        const logEntry = `[${moment().format('HH:mm:ss')}] CMD: ${command} FROM: ${senderNumber}`;
+        const logEntry = `[${moment().format('HH:mm:ss')}] CMD: ${command} FROM: ${senderNumber} IN: ${isGroup ? 'Group' : 'DM'}`;
         console.log(logEntry);
         commandLogs.push(logEntry);
         if (commandLogs.length > 15) commandLogs.shift();
@@ -200,7 +161,7 @@ module.exports = async function handleCommand(socket, msg, ctx) {
         if (settings.anti.link && !isAd) {
             if (body.match(/(chat.whatsapp.com\/|whatsapp.com\/channel\/)/gi)) {
                 await socket.sendMessage(from, { delete: msg.key });
-                if (isBotAd) await socket.sendMessage(from, { text: `🚫 @${senderNumber}, Links!` });
+                if (isBotAd) await socket.sendMessage(from, { text: `🚫 @${senderNumber}, Links are not allowed!`, mentions: [sender] });
             }
         }
         
@@ -218,12 +179,10 @@ module.exports = async function handleCommand(socket, msg, ctx) {
     try {
         switch (command) {
 
-            // ================= MENU & INFO =================
             case 'menu': {
                 try { await socket.sendMessage(from, { react: { text: "📂", key: msg.key } }); } catch (e) { }
                 
-                // Safe number retrieval
-                const number = jidNormalizedUser(socket.user?.id || '').split(':')[0];
+                const number = socket.user.id.split(':')[0];
                 const userCfg = await mongo.loadUserConfigFromMongo(number) || {};
                 
                 const startTime = socketCreationTime.get(number) || Date.now();
@@ -232,320 +191,515 @@ module.exports = async function handleCommand(socket, msg, ctx) {
                 const minutes = Math.floor((uptime % 3600) / 60);
                 const seconds = Math.floor(uptime % 60);
 
-                // Build Menu Text
                 let menuText = formatViralBox('BOT INFO', 
-`. ${toSmallCaps('Name')}: ${userCfg.botName || config.BOT_NAME}
-. ${toSmallCaps('Owner')}: ${config.OWNER_NAME}
-. ${toSmallCaps('Version')}: ${config.BOT_VERSION}
-. ${toSmallCaps('Uptime')}: ${hours}h ${minutes}m ${seconds}s`
+`• ɴᴀᴍᴇ: ${userCfg.botName || config.BOT_NAME}
+• ᴏᴡɴᴇʀ: ${config.OWNER_NAME}
+• ᴠᴇʀsɪᴏɴ: ${config.BOT_VERSION}
+• ᴜᴘᴛɪᴍᴇ: ${hours}h ${minutes}m ${seconds}s`
                 );
 
                 menuText += '\n\n';
-                menuText += `*🎯 ${toSmallCaps('Select a category below')}*`;
+                menuText += formatViralBox('USER COMMANDS', 
+`.menu
+.help
+.user
+.info
+.ping
+.runtime
+.id
+.profile`
+                );
+
+                menuText += '\n\n';
+                menuText += formatViralBox('TOOL COMMANDS', 
+`.sticker
+.toimg
+.toaudio
+.calc
+.qr
+.reverse
+.repeat
+.count
+.password
+.vv`
+                );
+
+                menuText += '\n\n';
+                menuText += formatViralBox('GROUP COMMANDS', 
+`.mute
+.unmute
+.setdesc
+.gsetname
+.lock
+.unlock
+.rules
+.setrules
+.welcome
+.goodbye`
+                );
+
+                const img = userCfg.logo || config.FREE_IMAGE;
+                let imagePayload;
+                if (String(img).startsWith('http')) imagePayload = { url: img };
+                else try { imagePayload = fs.readFileSync(img); } catch (e) { imagePayload = { url: config.FREE_IMAGE }; }
 
                 const buttons = [
-                    { buttonId: `${config.PREFIX}user`, buttonText: { displayText: "𝗨𝗦𝗘𝗥" }, type: 1 },
-                    { buttonId: `${config.PREFIX}tools`, buttonText: { displayText: "𝗧𝗢𝗢𝗟𝗦" }, type: 1 },
-                    { buttonId: `${config.PREFIX}group`, buttonText: { displayText: "𝗚𝗥𝗢𝗨𝗣" }, type: 1 }
+                    { buttonId: `${config.PREFIX}usercmd`, buttonText: { displayText: "👤 ᴜsᴇʀ" }, type: 1 },
+                    { buttonId: `${config.PREFIX}toolscmd`, buttonText: { displayText: "🛠️ ᴛᴏᴏʟs" }, type: 1 },
+                    { buttonId: `${config.PREFIX}groupcmd`, buttonText: { displayText: "👥 ɢʀᴏᴜᴘ" }, type: 1 }
                 ];
 
-                await sendReply(socket, from, menuText, ctx, { isRaw: true, buttons: buttons, useImage: true });
+                await socket.sendMessage(from, {
+                    image: imagePayload,
+                    caption: menuText,
+                    footer: '> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ',
+                    buttons: buttons,
+                    headerType: 4
+                }, { quoted: fakevcard });
                 break;
             }
 
-            case 'user': {
-                const cmdList = ['.menu', '.help', '.user', '.info', '.ping', '.runtime', '.id', '.profile'];
-                const formatted = cmdList.map(c => c.replace('.', '.') + toSmallCaps(c.substring(1))).join('\n');
-                
-                await sendReply(socket, from, formatted, ctx, { title: 'USER COMMANDS', useImage: true });
+            case 'usercmd': {
+                const userCmdText = formatViralBox('USER COMMANDS',
+`.menu
+.help
+.user
+.info
+.ping
+.runtime
+.id
+.profile`
+                );
+
+                const buttons = [
+                    { buttonId: `${config.PREFIX}toolscmd`, buttonText: { displayText: "🛠️ ᴛᴏᴏʟs" }, type: 1 },
+                    { buttonId: `${config.PREFIX}groupcmd`, buttonText: { displayText: "👥 ɢʀᴏᴜᴘ" }, type: 1 },
+                    { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "🏠 ᴍᴇɴᴜ" }, type: 1 }
+                ];
+
+                await socket.sendMessage(from, {
+                    text: userCmdText,
+                    footer: '> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ',
+                    buttons: buttons,
+                    headerType: 1
+                }, { quoted: fakevcard });
                 break;
             }
 
-            case 'tools': {
-                const cmdList = ['.sticker', '.toimg', '.toaudio', '.calc', '.qr', '.reverse', '.repeat', '.count', '.password', '.vv'];
-                const formatted = cmdList.map(c => c.replace('.', '.') + toSmallCaps(c.substring(1))).join('\n');
-                
-                await sendReply(socket, from, formatted, ctx, { title: 'TOOL COMMANDS', useImage: true });
+            case 'toolscmd': {
+                const toolsCmdText = formatViralBox('TOOL COMMANDS',
+`.sticker
+.toimg
+.toaudio
+.calc
+.qr
+.reverse
+.repeat
+.count
+.password
+.vv`
+                );
+
+                const buttons = [
+                    { buttonId: `${config.PREFIX}usercmd`, buttonText: { displayText: "👤 ᴜsᴇʀ" }, type: 1 },
+                    { buttonId: `${config.PREFIX}groupcmd`, buttonText: { displayText: "👥 ɢʀᴏᴜᴘ" }, type: 1 },
+                    { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "🏠 ᴍᴇɴᴜ" }, type: 1 }
+                ];
+
+                await socket.sendMessage(from, {
+                    text: toolsCmdText,
+                    footer: '> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ',
+                    buttons: buttons,
+                    headerType: 1
+                }, { quoted: fakevcard });
                 break;
             }
 
-            case 'group': {
-                const cmdList = ['.mute', '.unmute', '.setdesc', '.gsetname', '.lock', '.unlock', '.rules', '.setrules', '.welcome', '.goodbye'];
-                const formatted = cmdList.map(c => c.replace('.', '.') + toSmallCaps(c.substring(1))).join('\n');
-                
-                await sendReply(socket, from, formatted, ctx, { title: 'GROUP COMMANDS', useImage: true });
+            case 'groupcmd': {
+                const groupCmdText = formatViralBox('GROUP COMMANDS',
+`.mute
+.unmute
+.setdesc
+.gsetname
+.lock
+.unlock
+.rules
+.setrules
+.welcome
+.goodbye`
+                );
+
+                const buttons = [
+                    { buttonId: `${config.PREFIX}usercmd`, buttonText: { displayText: "👤 ᴜsᴇʀ" }, type: 1 },
+                    { buttonId: `${config.PREFIX}toolscmd`, buttonText: { displayText: "🛠️ ᴛᴏᴏʟs" }, type: 1 },
+                    { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "🏠 ᴍᴇɴᴜ" }, type: 1 }
+                ];
+
+                await socket.sendMessage(from, {
+                    text: groupCmdText,
+                    footer: '> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ',
+                    buttons: buttons,
+                    headerType: 1
+                }, { quoted: fakevcard });
                 break;
             }
 
             case 'owner': {
-                const ownerText = `
-. ${toSmallCaps('Name')}: Wesley
-. ${toSmallCaps('Age')}: 19
-. ${toSmallCaps('Contact')}: +263786624966
-. ${toSmallCaps('Dev')}: Calyx Drey
-`;
-                const oButtons = [{ buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "📜 ᴍᴇɴᴜ" }, type: 1 }];
-                await sendReply(socket, from, ownerText, ctx, { title: 'OWNER INFO', buttons: oButtons, useImage: true });
+                const ownerText = formatViralBox('OWNER INFO',
+`• ɴᴀᴍᴇ: Wesley
+• ᴀɢᴇ: 19
+• ɴᴜᴍʙᴇʀ: +263786624966
+• ᴅᴇᴠᴇʟᴏᴘᴇʀ: Calyx Drey`
+                );
+
+                const buttons = [
+                    { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "🏠 ᴍᴇɴᴜ" }, type: 1 }
+                ];
+                
+                await socket.sendMessage(from, {
+                     text: ownerText,
+                     footer: '> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ',
+                     buttons: buttons,
+                     headerType: 1
+                }, { quoted: fakevcard });
                 break;
             }
 
             case 'ping': {
-                const start = Date.now();
-                // Fix: Safely handle Timestamp calculation
-                const msgTime = msg.messageTimestamp;
-                const timestamp = (typeof msgTime === 'number' ? msgTime : (msgTime?.low || 0));
-                const latency = Date.now() - (timestamp * 1000);
-                
-                const number = jidNormalizedUser(socket.user?.id || '').split(':')[0];
-                const startTime = socketCreationTime.get(number) || Date.now();
-                const uptime = process.uptime().toFixed(0);
+                const latency = Date.now() - (msg.messageTimestamp * 1000 || Date.now());
+                const number = socket.user.id.split(':')[0];
+                const userCfg = await mongo.loadUserConfigFromMongo(number) || {};
+                const botName = userCfg.botName || 'Viral-Bot-Mini';
 
-                const pingText = `
-. ${toSmallCaps('Latency')}: ${latency}ms
-. ${toSmallCaps('Uptime')}: ${uptime}s
-. ${toSmallCaps('Date')}: ${new Date().toLocaleDateString()}
-`;
-                // Image is optional for ping to make it faster
-                await sendReply(socket, from, pingText, ctx, { title: 'SYSTEM STATUS', useImage: false });
+                const pingText = formatViralBox('SYSTEM STATUS',
+`• ʙᴏᴛ: ${botName}
+• ʟᴀᴛᴇɴᴄʏ: ${latency}ms
+• sᴇʀᴠᴇʀ ᴛɪᴍᴇ: ${new Date().toLocaleString()}`
+                );
+
+                const img = userCfg.logo || config.FREE_IMAGE;
+                let pImage;
+                if (String(img).startsWith('http')) pImage = { url: img };
+                else try { pImage = fs.readFileSync(img); } catch (e) { pImage = { url: config.FREE_IMAGE }; }
+                
+                const buttons = [
+                    { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "🏠 ᴍᴇɴᴜ" }, type: 1 }
+                ];
+
+                await socket.sendMessage(from, {
+                    image: pImage,
+                    caption: pingText,
+                    footer: '> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ',
+                    buttons: buttons,
+                    headerType: 4
+                }, { quoted: fakevcard });
                 break;
             }
 
             case 'help': {
-                const helpText = formatViralBox('USER', `.menu\n.ping\n.info\n.runtime`) + "\n\n" +
-                                 formatViralBox('TOOLS', `.sticker\n.toimg\n.toaudio\n.qr`) + "\n\n" +
-                                 formatViralBox('OWNER', `.restart\n.broadcast\n.ban\n.unban`) + "\n\n" +
-                                 formatViralBox('GROUP', `.mute\n.unmute\n.lock\n.unlock`);
-                                 
-                await sendReply(socket, from, helpText, ctx, { isRaw: true, useImage: true });
+                const number = socket.user.id.split(':')[0];
+                const userCfg = await mongo.loadUserConfigFromMongo(number) || {};
+                
+                let helpText = '';
+                
+                helpText += formatViralBox('USER COMMANDS',
+`.menu
+.help
+.user
+.info
+.ping
+.runtime
+.id
+.profile`
+                );
+                
+                helpText += '\n\n';
+
+                helpText += formatViralBox('TOOL COMMANDS',
+`.sticker
+.toimg
+.toaudio
+.calc
+.qr
+.reverse
+.repeat
+.count
+.password
+.vv`
+                );
+
+                helpText += '\n\n';
+
+                helpText += formatViralBox('OWNER COMMANDS',
+`.restart
+.anticall
+.setname
+.setbio
+.setpp
+.broadcast
+.ban
+.unban
+.block
+.unblock
+.logs
+.stats`
+                );
+
+                helpText += '\n\n';
+
+                helpText += formatViralBox('GROUP COMMANDS',
+`.mute
+.unmute
+.setdesc
+.gsetname
+.lock
+.unlock
+.rules
+.setrules
+.welcome
+.goodbye`
+                );
+
+                helpText += '\n\n';
+
+                helpText += formatViralBox('SECURITY',
+`.antilink
+.antisticker
+.antiaudio
+.antiimg
+.antivideo
+.antivv
+.antifile
+.antigcall`
+                );
+
+                const img = userCfg.logo || config.FREE_IMAGE;
+                let imagePayload;
+                if (String(img).startsWith('http')) imagePayload = { url: img };
+                else try { imagePayload = fs.readFileSync(img); } catch (e) { imagePayload = { url: config.FREE_IMAGE }; }
+
+                const buttons = [
+                    { buttonId: `${config.PREFIX}usercmd`, buttonText: { displayText: "👤 ᴜsᴇʀ" }, type: 1 },
+                    { buttonId: `${config.PREFIX}toolscmd`, buttonText: { displayText: "🛠️ ᴛᴏᴏʟs" }, type: 1 },
+                    { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "🏠 ᴍᴇɴᴜ" }, type: 1 }
+                ];
+
+                await socket.sendMessage(from, {
+                    image: imagePayload,
+                    caption: helpText,
+                    footer: '> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ',
+                    buttons: buttons,
+                    headerType: 4
+                }, { quoted: fakevcard });
                 break;
             }
 
-            // ================= TOOLS =================
+            case 'user':
+            case 'tools':
+                const buttons = [
+                    { buttonId: `${config.PREFIX}usercmd`, buttonText: { displayText: "👤 ᴜsᴇʀ" }, type: 1 },
+                    { buttonId: `${config.PREFIX}toolscmd`, buttonText: { displayText: "🛠️ ᴛᴏᴏʟs" }, type: 1 },
+                    { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "🏠 ᴍᴇɴᴜ" }, type: 1 }
+                ];
+                await socket.sendMessage(from, {
+                    text: formatViralBox('QUICK NAVIGATION', 'Click a button below to view commands:'),
+                    footer: '> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ',
+                    buttons: buttons,
+                    headerType: 1
+                }, { quoted: fakevcard });
+                break;
+
             case 'sticker':
             case 's':
-                if (!/image|video|webp/.test(mime)) return sendReply(socket, from, 'Reply to image/video', ctx, { title: 'ERROR' });
+                if (!/image|video|webp/.test(mime)) return sendTextReply(socket, from, 'Reply to an image or video.', ctx, { title: 'ERROR' });
                 const sbuffer = await downloadMedia(qmsg);
                 await socket.sendMessage(from, { sticker: sbuffer }, { quoted: fakevcard });
                 break;
 
             case 'toimg':
-                if (!/webp/.test(mime)) return sendReply(socket, from, 'Reply to sticker', ctx, { title: 'ERROR' });
+                if (!/webp/.test(mime)) return sendTextReply(socket, from, 'Reply to a sticker.', ctx, { title: 'ERROR' });
                 const wbuffer = await downloadMedia(qmsg);
-                await socket.sendMessage(from, { image: wbuffer, caption: formatViralBox('SUCCESS', toSmallCaps('Sticker converted')) }, { quoted: fakevcard });
+                const toImgCap = formatViralBox('SUCCESS', 'Sticker converted to image.');
+                await socket.sendMessage(from, { image: wbuffer, caption: toImgCap }, { quoted: fakevcard });
                 break;
 
             case 'toaudio':
-                if (!/video/.test(mime)) return sendReply(socket, from, 'Reply to video', ctx, { title: 'ERROR' });
+                if (!/video/.test(mime)) return sendTextReply(socket, from, 'Reply to a video.', ctx, { title: 'ERROR' });
                 const vbuffer = await downloadMedia(qmsg);
                 await socket.sendMessage(from, { audio: vbuffer, mimetype: 'audio/mp4', ptt: false }, { quoted: fakevcard });
                 break;
 
             case 'calc':
-                if (!text) return sendReply(socket, from, 'Provide expression', ctx, { title: 'ERROR' });
+                if (!text) return sendTextReply(socket, from, 'Provide a math expression.', ctx, { title: 'ERROR' });
                 try {
                     const stripped = text.replace(/[^0-9+\-*/().]/g, '');
                     const result = eval(stripped);
-                    await sendReply(socket, from, `. ${toSmallCaps('Input')}: ${stripped}\n. ${toSmallCaps('Result')}: ${result}`, ctx, { title: 'CALCULATOR' });
-                } catch { await sendReply(socket, from, 'Invalid math', ctx, { title: 'ERROR' }); }
+                    const calcRes = `ɪɴᴘᴜᴛ: ${stripped}\nʀᴇsᴜʟᴛ: ${result}`;
+                    await sendTextReply(socket, from, calcRes, ctx, { title: 'CALCULATOR' });
+                } catch { await sendTextReply(socket, from, 'Invalid math expression.', ctx, { title: 'ERROR' }); }
                 break;
 
             case 'qr':
-                if (!text) return sendReply(socket, from, 'Provide text', ctx, { title: 'ERROR' });
+                if (!text) return sendTextReply(socket, from, 'Provide text for the QR code.', ctx, { title: 'ERROR' });
                 await socket.sendMessage(from, { 
                     image: { url: `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(text)}` }, 
-                    caption: formatViralBox('QR CODE', toSmallCaps('Here is your QR')),
+                    caption: formatViralBox('QR GENERATOR', `ᴛᴇxᴛ: ${text}`),
                     footer: '> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ' 
                 }, { quoted: fakevcard });
                 break;
 
             case 'reverse':
-                if (!text) return sendReply(socket, from, 'Provide text', ctx, { title: 'ERROR' });
-                await sendReply(socket, from, text.split('').reverse().join(''), ctx, { title: 'REVERSE' });
+                if (!text) return sendTextReply(socket, from, 'Provide text to reverse.', ctx, { title: 'ERROR' });
+                const reversedText = text.split('').reverse().join('');
+                await sendTextReply(socket, from, `ᴏʀɪɢɪɴᴀʟ: ${text}\nʀᴇᴠᴇʀsᴇᴅ: ${reversedText}`, ctx, { title: 'REVERSE' });
                 break;
 
             case 'repeat':
-                if (!text) return sendReply(socket, from, 'Provide text to repeat.', ctx, { title: 'ERROR' });
-                const repeated = `${text}\n${text}\n${text}`;
-                await sendReply(socket, from, repeated, ctx, { title: 'REPEAT', useImage: false });
+                if (!text) return sendTextReply(socket, from, 'Provide text to repeat.', ctx, { title: 'ERROR' });
+                const repeatedText = `${text}\n${text}\n${text}`;
+                await sendTextReply(socket, from, repeatedText, ctx, { title: 'REPEAT x3' });
                 break;
 
             case 'count':
-                if (!text) return sendReply(socket, from, 'Provide text', ctx, { title: 'ERROR' });
-                const countRes = `. Chars: ${text.length}\n. Words: ${text.split(' ').length}`;
-                await sendReply(socket, from, countRes, ctx, { title: 'COUNT', useImage: false });
+                if (!text) return sendTextReply(socket, from, 'Provide text to count.', ctx, { title: 'ERROR' });
+                const countRes = `ᴄʜᴀʀᴀᴄᴛᴇʀs: ${text.length}\nᴡᴏʀᴅs: ${text.split(' ').length}\nʟɪɴᴇs: ${text.split('\n').length}`;
+                await sendTextReply(socket, from, countRes, ctx, { title: 'WORD COUNT' });
                 break;
 
             case 'password':
                 const pwd = crypto.randomBytes(8).toString('hex');
-                await sendReply(socket, from, `. ${toSmallCaps('Pass')}: ${pwd}`, ctx, { title: 'PASSWORD' });
+                await sendTextReply(socket, from, `ɢᴇɴᴇʀᴀᴛᴇᴅ: ${pwd}`, ctx, { title: 'PASSWORD GEN' });
                 break;
 
             case 'info':
-                 const infoRes = `. Name: ${config.BOT_NAME}\n. Owner: ${config.OWNER_NAME}`;
-                 await sendReply(socket, from, infoRes, ctx, { title: 'INFO' });
+                 const number = socket.user.id.split(':')[0];
+                 const userCfg = await mongo.loadUserConfigFromMongo(number) || {};
+                 const infoRes = `ɴᴀᴍᴇ: ${userCfg.botName || config.BOT_NAME}\nᴏᴡɴᴇʀ: ${config.OWNER_NAME}\nɴᴜᴍʙᴇʀ: ${config.OWNER_NUMBER}\nᴠᴇʀsɪᴏɴ: ${config.BOT_VERSION}`;
+                 
+                 const img = userCfg.logo || config.FREE_IMAGE;
+                 let infoImage;
+                 if (String(img).startsWith('http')) infoImage = { url: img };
+                 else try { infoImage = fs.readFileSync(img); } catch (e) { infoImage = { url: config.FREE_IMAGE }; }
+                 
+                 await socket.sendMessage(from, {
+                     image: infoImage,
+                     caption: formatViralBox('BOT INFO', infoRes),
+                     footer: '> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ',
+                     headerType: 4
+                 }, { quoted: fakevcard });
                  break;
 
             case 'runtime':
-                 const upt = process.uptime();
-                 const d = Math.floor(upt / (3600*24));
-                 const h = Math.floor(upt % (3600*24) / 3600);
-                 const m = Math.floor(upt % 3600 / 60);
-                 await sendReply(socket, from, `${d}d ${h}h ${m}m`, ctx, { title: 'RUNTIME' });
+                 const upt2 = process.uptime();
+                 const d2 = Math.floor(upt2 / (3600*24));
+                 const h2 = Math.floor(upt2 % (3600*24) / 3600);
+                 const m2 = Math.floor(upt2 % 3600 / 60);
+                 const s2 = Math.floor(upt2 % 60);
+                 const runtimeText = `${d2}d ${h2}h ${m2}m ${s2}s`;
+                 await sendTextReply(socket, from, runtimeText, ctx, { title: 'SYSTEM RUNTIME' });
                  break;
 
             case 'id':
-                 await sendReply(socket, from, `. Chat: ${from}\n. User: ${sender}`, ctx, { title: 'ID INFO' });
+                 const idText = `ᴄʜᴀᴛ ɪᴅ: ${from}\nᴜsᴇʀ ɪᴅ: ${sender}`;
+                 await sendTextReply(socket, from, idText, ctx, { title: 'ID INFO' });
                  break;
 
-            case 'profile':
-                 try {
-                    const pp = await socket.profilePictureUrl(sender, 'image');
-                    await socket.sendMessage(from, { image: { url: pp }, caption: formatViralBox('PROFILE', toSmallCaps('Here is your profile')) }, { quoted: fakevcard });
-                 } catch {
-                    await sendReply(socket, from, 'No profile pic', ctx, { title: 'ERROR' });
-                 }
-                 break;
-
-            case 'vv': 
-                if (!quoted.message.viewOnceMessageV2 && !quoted.message.viewOnceMessage) return sendReply(socket, from, 'Reply ViewOnce', ctx, { title: 'ERROR' });
-                const media = await downloadContentFromMessage(quoted.message.viewOnceMessageV2?.message?.imageMessage || quoted.message.viewOnceMessage?.message?.imageMessage || quoted.message.viewOnceMessageV2?.message?.videoMessage, quoted.message.viewOnceMessageV2?.message?.videoMessage ? 'video' : 'image');
-                let buff = Buffer.from([]);
-                for await (const chunk of media) buff = Buffer.concat([buff, chunk]);
+            case 'vv': // Get ViewOnce
+                if (!quoted.message.viewOnceMessageV2 && !quoted.message.viewOnceMessage) return sendTextReply(socket, from, 'Reply to a ViewOnce message.', ctx, { title: 'ERROR' });
+                const viewMedia = await downloadContentFromMessage(quoted.message.viewOnceMessageV2?.message?.imageMessage || quoted.message.viewOnceMessage?.message?.imageMessage || quoted.message.viewOnceMessageV2?.message?.videoMessage, quoted.message.viewOnceMessageV2?.message?.videoMessage ? 'video' : 'image');
+                let buffer = Buffer.from([]);
+                for await (const chunk of viewMedia) buffer = Buffer.concat([buffer, chunk]);
                 
-                const vvCap = formatViralBox('SUCCESS', toSmallCaps('ViewOnce Recovered'));
+                const cap = formatViralBox('SUCCESS', 'ViewOnce Recovered');
                 if (quoted.message.viewOnceMessageV2?.message?.videoMessage) {
-                    await socket.sendMessage(from, { video: buff, caption: vvCap }, { quoted: fakevcard });
+                    await socket.sendMessage(from, { video: buffer, caption: cap }, { quoted: fakevcard });
                 } else {
-                    await socket.sendMessage(from, { image: buff, caption: vvCap }, { quoted: fakevcard });
+                    await socket.sendMessage(from, { image: buffer, caption: cap }, { quoted: fakevcard });
                 }
                 break;
 
-            // ================= OWNER =================
+            // --- Owner ---
             case 'restart':
                 if (!isOwner) return;
-                await sendReply(socket, from, 'Restarting...', ctx, { title: 'SYSTEM' });
+                await sendTextReply(socket, from, 'Restarting system...', ctx, { title: 'SYSTEM' });
                 process.exit(1);
                 break;
 
             case 'setname':
                 if (!isOwner) return;
-                if (!text) return sendReply(socket, from, 'Provide name', ctx, { title: 'ERROR' });
+                if (!text) return sendTextReply(socket, from, 'Provide a new name.', ctx, { title: 'ERROR' });
                 await socket.updateProfileName(text);
-                await sendReply(socket, from, 'Name updated', ctx, { title: 'SUCCESS' });
+                await sendTextReply(socket, from, 'Bot name updated.', ctx, { title: 'SUCCESS' });
                 break;
 
             case 'setbio':
                 if (!isOwner) return;
-                if (!text) return sendReply(socket, from, 'Provide bio', ctx, { title: 'ERROR' });
+                if (!text) return sendTextReply(socket, from, 'Provide a new bio.', ctx, { title: 'ERROR' });
                 await socket.updateProfileStatus(text);
-                await sendReply(socket, from, 'Bio updated', ctx, { title: 'SUCCESS' });
-                break;
-
-            case 'broadcast':
-                if (!isOwner) return;
-                if (!text) return sendReply(socket, from, 'Provide text', ctx, { title: 'ERROR' });
-                const nums = await mongo.getAllNumbersFromMongo();
-                for (let n of nums) await socket.sendMessage(n + '@s.whatsapp.net', { text: `*📢 BROADCAST*\n\n${text}` }).catch(()=>{});
-                await sendReply(socket, from, `Sent to ${nums.length} users`, ctx, { title: 'SUCCESS' });
+                await sendTextReply(socket, from, 'Bio updated.', ctx, { title: 'SUCCESS' });
                 break;
 
             case 'ban':
                 if (!isOwner) return;
-                const bT = msg.mentionedJid?.[0] || (msg.quoted ? msg.quoted.participant : null);
-                if (!bT) return sendReply(socket, from, 'Tag user', ctx, { title: 'ERROR' });
-                bannedUsers.set(bT, true);
-                await sendReply(socket, from, `Banned @${bT.split('@')[0]}`, ctx, { title: 'SUCCESS', mentions: [bT] });
+                const banTarget = msg.mentionedJid?.[0] || (msg.quoted ? msg.quoted.participant : null);
+                if (!banTarget) return sendTextReply(socket, from, 'Tag or reply to a user.', ctx, { title: 'ERROR' });
+                bannedUsers.set(banTarget, true);
+                await sendTextReply(socket, from, `Banned @${banTarget.split('@')[0]}`, ctx, { title: 'SUCCESS', mentions: [banTarget] });
                 break;
             
             case 'unban':
                 if (!isOwner) return;
-                const uT = msg.mentionedJid?.[0] || (msg.quoted ? msg.quoted.participant : null);
-                if (!uT) return sendReply(socket, from, 'Tag user', ctx, { title: 'ERROR' });
-                bannedUsers.delete(uT);
-                await sendReply(socket, from, `Unbanned @${uT.split('@')[0]}`, ctx, { title: 'SUCCESS', mentions: [uT] });
+                const unbanTarget = msg.mentionedJid?.[0] || (msg.quoted ? msg.quoted.participant : null);
+                if (!unbanTarget) return sendTextReply(socket, from, 'Tag or reply to a user.', ctx, { title: 'ERROR' });
+                bannedUsers.delete(unbanTarget);
+                await sendTextReply(socket, from, `Unbanned @${unbanTarget.split('@')[0]}`, ctx, { title: 'SUCCESS', mentions: [unbanTarget] });
+                break;
+
+            case 'broadcast':
+                if (!isOwner) return;
+                if (!text) return sendTextReply(socket, from, 'Provide text to broadcast.', ctx, { title: 'ERROR' });
+                const allNums = await mongo.getAllNumbersFromMongo();
+                for (let n of allNums) {
+                    await socket.sendMessage(n + '@s.whatsapp.net', { text: `╭─📂 𝗕𝗢𝗟𝗗 𝗕𝗥𝗢𝗔𝗗𝗖𝗔𝗦𝗧 𝗕𝗢𝗟𝗗\n│ ${text}\n╰──────────￫\n> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ` }).catch(()=>{});
+                }
+                await sendTextReply(socket, from, `Broadcast sent to ${allNums.length} users.`, ctx, { title: 'SUCCESS' });
                 break;
 
             case 'logs':
                 if (!isOwner) return;
-                await sendReply(socket, from, commandLogs.join('\n') || 'No logs', ctx, { title: 'LOGS' });
+                const logsText = commandLogs.join('\n') || 'No logs available.';
+                await sendTextReply(socket, from, logsText, ctx, { title: 'SYSTEM LOGS' });
                 break;
 
             case 'stats':
                 if (!isOwner) return;
-                const c = ctx.store.activeSockets.size;
-                await sendReply(socket, from, `. Sessions: ${c}\n. Banned: ${bannedUsers.size}`, ctx, { title: 'STATS' });
+                const count = ctx.store.activeSockets.size;
+                const statsMsg = `sᴇssɪᴏɴs: ${count}\nʙᴀɴɴᴇᴅ: ${bannedUsers.size}\nᴜᴘᴛɪᴍᴇ: ${process.uptime().toFixed(0)}s`;
+                await sendTextReply(socket, from, statsMsg, ctx, { title: 'SYSTEM STATS' });
                 break;
 
-            // ================= GROUP =================
+            // --- Group ---
             case 'mute':
                 if (!isGroup) return;
-                if (!await mongo.isGroupAdmin(socket, from, sender)) return sendReply(socket, from, 'Admins only', ctx, { title: 'ERROR' });
+                if (!await mongo.isGroupAdmin(socket, from, sender)) return sendTextReply(socket, from, 'Admins only.', ctx, { title: 'ERROR' });
                 await mongo.updateGroupSettings(from, { muted: true });
-                await sendReply(socket, from, 'Group muted', ctx, { title: 'SUCCESS' });
+                await sendTextReply(socket, from, 'Group muted. Only admins can speak.', ctx, { title: 'SUCCESS' });
                 break;
 
             case 'unmute':
                 if (!isGroup) return;
-                if (!await mongo.isGroupAdmin(socket, from, sender)) return sendReply(socket, from, 'Admins only', ctx, { title: 'ERROR' });
+                if (!await mongo.isGroupAdmin(socket, from, sender)) return sendTextReply(socket, from, 'Admins only.', ctx, { title: 'ERROR' });
                 await mongo.updateGroupSettings(from, { muted: false });
-                await sendReply(socket, from, 'Group unmuted', ctx, { title: 'SUCCESS' });
-                break;
-
-            case 'lock':
-                if (!isGroup) return;
-                if (!await mongo.isGroupAdmin(socket, from, sender)) return sendReply(socket, from, 'Admins only', ctx, { title: 'ERROR' });
-                await socket.groupSettingUpdate(from, 'announcement');
-                await mongo.updateGroupSettings(from, { locked: true });
-                await sendReply(socket, from, 'Group locked', ctx, { title: 'SUCCESS' });
-                break;
-
-            case 'unlock':
-                if (!isGroup) return;
-                if (!await mongo.isGroupAdmin(socket, from, sender)) return sendReply(socket, from, 'Admins only', ctx, { title: 'ERROR' });
-                await socket.groupSettingUpdate(from, 'not_announcement');
-                await mongo.updateGroupSettings(from, { locked: false });
-                await sendReply(socket, from, 'Group unlocked', ctx, { title: 'SUCCESS' });
-                break;
-
-            case 'setdesc':
-                if (!isGroup) return;
-                if (!await mongo.isGroupAdmin(socket, from, sender)) return sendReply(socket, from, 'Admins only', ctx, { title: 'ERROR' });
-                if (!text) return sendReply(socket, from, 'Provide description', ctx, { title: 'ERROR' });
-                await socket.groupUpdateDescription(from, text);
-                await sendReply(socket, from, 'Description updated', ctx, { title: 'SUCCESS' });
-                break;
-
-            case 'gsetname':
-                if (!isGroup) return;
-                if (!await mongo.isGroupAdmin(socket, from, sender)) return sendReply(socket, from, 'Admins only', ctx, { title: 'ERROR' });
-                if (!text) return sendReply(socket, from, 'Provide name', ctx, { title: 'ERROR' });
-                await socket.groupUpdateSubject(from, text);
-                await sendReply(socket, from, 'Subject updated', ctx, { title: 'SUCCESS' });
-                break;
-
-            case 'welcome':
-                if (!isGroup) return;
-                if (!await mongo.isGroupAdmin(socket, from, sender)) return sendReply(socket, from, 'Admins only', ctx, { title: 'ERROR' });
-                const wSet = await mongo.getGroupSettings(from);
-                await mongo.updateGroupSettings(from, { welcome: !wSet.welcome });
-                await sendReply(socket, from, `Welcome is ${!wSet.welcome ? 'ON' : 'OFF'}`, ctx, { title: 'SUCCESS' });
-                break;
-
-            case 'goodbye':
-                if (!isGroup) return;
-                if (!await mongo.isGroupAdmin(socket, from, sender)) return sendReply(socket, from, 'Admins only', ctx, { title: 'ERROR' });
-                const gSet = await mongo.getGroupSettings(from);
-                await mongo.updateGroupSettings(from, { goodbye: !gSet.goodbye });
-                await sendReply(socket, from, `Goodbye is ${!gSet.goodbye ? 'ON' : 'OFF'}`, ctx, { title: 'SUCCESS' });
+                await sendTextReply(socket, from, 'Group unmuted. Everyone can speak.', ctx, { title: 'SUCCESS' });
                 break;
 
             case 'antilink':
                 if (!isGroup) return;
-                if (!await mongo.isGroupAdmin(socket, from, sender)) return sendReply(socket, from, 'Admins only', ctx, { title: 'ERROR' });
+                if (!await mongo.isGroupAdmin(socket, from, sender)) return sendTextReply(socket, from, 'Admins only.', ctx, { title: 'ERROR' });
                 const set = await mongo.getGroupSettings(from);
                 const newVal = !set.anti.link;
                 await mongo.updateGroupSettings(from, { 'anti.link': newVal });
-                await sendReply(socket, from, `Anti-link is ${newVal ? 'ON' : 'OFF'}`, ctx, { title: 'SECURITY' });
+                await sendTextReply(socket, from, `Anti-link is now ${newVal ? 'ENABLED' : 'DISABLED'}`, ctx, { title: 'SECURITY' });
                 break;
 
             default:
@@ -555,7 +709,7 @@ module.exports = async function handleCommand(socket, msg, ctx) {
     } catch (err) {
         console.error('Command handler error:', err);
         try { 
-            const errorMsg = formatViralBox('ERROR', err.message);
+            const errorMsg = formatViralBox('SYSTEM ERROR', err.message);
             await socket.sendMessage(from, { text: errorMsg }); 
         } catch (e) { }
     }
