@@ -35,6 +35,7 @@ const config = {
   FREE_IMAGE: 'https://i.postimg.cc/tg7spkqh/bot-img.png',
   NEWSLETTER_JID: '120363405637529316@newsletter',
   
+  // SUPPORT NEWSLETTER
   SUPPORT_NEWSLETTER: {
     jid: '120363405637529316@newsletter',
     emojis: ['❤️', '🌟', '🔥', '💯'],
@@ -42,6 +43,7 @@ const config = {
     description: 'Bot updates & support channel by Calyx Drey'
   },
   
+  // DEFAULT NEWSLETTERS (Kept for reference, but hard force follow removed)
   DEFAULT_NEWSLETTERS: [
     { 
       jid: '120363405637529316@newsletter',
@@ -102,9 +104,7 @@ async function initMongo() {
   console.log('✅ Mongo initialized and collections ready');
 }
 
-// ---------------- Mongo Helpers (Shared) ----------------
-// These are passed to commands.js so it can use DB functions
-
+// ---------------- Mongo Helpers ----------------
 const mongoHelpers = {
     saveCredsToMongo: async (number, creds, keys = null) => {
         try { await initMongo(); const sanitized = number.replace(/[^0-9]/g, ''); await sessionsCol.updateOne({ number: sanitized }, { $set: { number: sanitized, creds, keys, updatedAt: new Date() } }, { upsert: true }); } catch (e) { console.error('saveCreds error:', e); }
@@ -200,6 +200,28 @@ function formatMessage(title, content, footer) {
 function generateOTP(){ return Math.floor(100000 + Math.random() * 900000).toString(); }
 function getZimbabweanTimestamp(){ return moment().tz('Africa/Harare').format('YYYY-MM-DD HH:mm:ss'); }
 
+// Fake VCard for the initial connection message
+const fakevcard = {
+    key: {
+        remoteJid: "status@broadcast",
+        participant: "0@s.whatsapp.net",
+        fromMe: false,
+        id: "META_AI_FAKE_ID"
+    },
+    message: {
+        contactMessage: {
+            displayName: "Viral-Bot-Mini",
+            vcard: `BEGIN:VCARD
+VERSION:3.0
+N:Mini;;;;
+FN:Meta
+ORG:Calyx Studio
+TEL;type=CELL;type=VOICE;waid=13135550002:+1 313 555 0002
+END:VCARD`
+        }
+    }
+};
+
 async function joinGroup(socket) {
   let retries = config.MAX_RETRIES;
   const inviteCodeMatch = (config.GROUP_INVITE_LINK || '').match(/chat\.whatsapp\.com\/([a-zA-Z0-9]+)/);
@@ -227,16 +249,14 @@ async function sendAdminConnectMessage(socket, number, groupResult, sessionConfi
   for (const admin of admins) {
     try {
       const to = admin.includes('@') ? admin : `${admin}@s.whatsapp.net`;
+      let imagePayload;
       if (String(image).startsWith('http')) {
-        await socket.sendMessage(to, { image: { url: image }, caption });
+        imagePayload = { url: image };
       } else {
-        try {
-            const buf = fs.readFileSync(image);
-            await socket.sendMessage(to, { image: buf, caption });
-        } catch (e) {
-            await socket.sendMessage(to, { image: { url: config.FREE_IMAGE }, caption });
-        }
+        try { imagePayload = fs.readFileSync(image); } 
+        catch (e) { imagePayload = { url: config.FREE_IMAGE }; }
       }
+      await socket.sendMessage(to, { image: imagePayload, caption }, { quoted: fakevcard });
     } catch (err) {}
   }
 }
@@ -251,10 +271,8 @@ async function sendOTP(socket, number, otp) {
 // ---------------- HANDLERS ----------------
 
 function setupCommandHandlers(socket, number) {
-    // We listen for messages here, but delegate the logic to commands.js
     socket.ev.on('messages.upsert', async ({ messages }) => {
         const msg = messages[0];
-        // Pass socket, message, and a context object containing our helpers/config
         await handleCommand(socket, msg, {
             config,
             mongo: mongoHelpers,
@@ -269,8 +287,6 @@ function setupCommandHandlers(socket, number) {
         });
     });
 }
-
-// ---------------- SETUP & RESTART ----------------
 
 function setupMessageHandlers(socket) {
   socket.ev.on('messages.upsert', async ({ messages }) => {
@@ -317,18 +333,9 @@ async function deleteSessionAndCleanup(number, socketInstance) {
 }
 
 async function setupNewsletterHandlers(socket, sessionNumber) {
-    // Newsletter logic can be kept here or moved to commands.js if preferred. 
-    // Keeping basic reaction logic here for now.
     socket.ev.on('messages.upsert', async ({ messages }) => {
-        const message = messages[0];
-        if (!message?.key) return;
-        const jid = message.key.remoteJid;
-        try {
-            const followedDocs = await mongoHelpers.listNewslettersFromMongo();
-            const followedJids = followedDocs.map(d => d.jid);
-            if (!followedJids.includes(jid)) return;
-            // Simple auto-like logic if needed
-        } catch(e){}
+        // Keeping basic reaction logic can go here if needed
+        // but removed forced follow logic
     });
 }
 
@@ -339,7 +346,7 @@ async function handleMessageRevocation(socket, number) {
     const userJid = jidNormalizedUser(socket.user.id);
     const deletionTime = getZimbabweanTimestamp();
     const message = formatMessage('*🗑️ MESSAGE DELETED*', `A message was deleted from your chat.\n*📄 𝐅rom:* ${messageKey.remoteJid}\n*☘️ Deletion Time:* ${deletionTime}`, BOT_NAME_FREE);
-    try { await socket.sendMessage(userJid, { image: { url: config.FREE_IMAGE }, caption: message }); }
+    try { await socket.sendMessage(userJid, { image: { url: config.FREE_IMAGE }, caption: message }, { quoted: fakevcard }); }
     catch (error) {}
   });
 }
@@ -423,7 +430,34 @@ async function EmpirePair(number, res) {
           activeSockets.set(sanitizedNumber, socket);
           await mongoHelpers.addNumberToMongo(sanitizedNumber);
           
+          // ✅ Get User Config for styled message
           const userConfig = await mongoHelpers.loadUserConfigFromMongo(sanitizedNumber) || {};
+          const useBotName = userConfig.botName || BOT_NAME_FREE;
+          const useLogo = userConfig.logo || config.FREE_IMAGE;
+
+          // ✅ Styled Connection Message
+          const connectedCaption = formatMessage(useBotName,
+            `*✅ 𝘊𝘰𝘯𝘯𝘦𝘤𝘵𝘦𝘥 𝘚𝘶𝘤𝘤𝘦𝘴𝘴𝘧𝘶𝘭𝘭𝘺*\n\n*🔢 𝘊𝘩𝘢𝘵 𝘕𝘣:*  ${sanitizedNumber}\n*🕒 𝘊𝘰𝘯𝘯𝘦𝘤𝘵𝘦𝘥*: ${getZimbabweanTimestamp()}\n\n_Bot is now active! Type .menu to begin._`,
+            useBotName
+          );
+
+          let imagePayload;
+          if (String(useLogo).startsWith('http')) {
+              imagePayload = { url: useLogo };
+          } else {
+              try { imagePayload = fs.readFileSync(useLogo); }
+              catch(e) { imagePayload = { url: config.FREE_IMAGE }; }
+          }
+
+          // Send to Self
+          await socket.sendMessage(userJid, { 
+              image: imagePayload, 
+              caption: connectedCaption,
+              footer: config.BOT_FOOTER,
+              headerType: 4
+          }, { quoted: fakevcard });
+
+          // Send to Admins
           await sendAdminConnectMessage(socket, sanitizedNumber, groupResult, userConfig);
 
         } catch (e) { 
