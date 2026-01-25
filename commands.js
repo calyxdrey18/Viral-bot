@@ -33,16 +33,7 @@ END:VCARD`
 
 // ---------------- FONT HELPERS ----------------
 
-const toBoldSans = (text) => {
-    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    const bold = "𝗔𝗕𝗖𝗗𝗘𝗙𝗚𝗛𝗜𝗝𝗞𝗟𝗠𝗡𝗢𝗣𝗤𝗥𝗦𝗧𝗨𝗩𝗪𝗫𝗬𝗭𝗮𝗯𝗰𝗱𝗲𝗳𝗴𝗵𝗶𝗷𝗸𝗹𝗺𝗻𝗼𝗽𝗾𝗿𝘀𝘁𝘂𝘃𝘄𝘅𝘆𝘇𝟬𝟭𝟮𝟯𝟰𝟱𝟲𝟳𝟴𝟵";
-    return text.split('').map(c => {
-        const i = chars.indexOf(c);
-        return i !== -1 ? bold.substr(i * 2, 2) : c; // Bold sans chars are mostly 2 bytes/surrogates
-    }).join('');
-};
-
-// Simplified Bold Sans map for standard regex replacement to ensure stability
+// Helper to convert text to Bold Sans (Viral Header Style)
 const fontBoldSans = (text) => {
     const map = {
         'A': '𝗔', 'B': '𝗕', 'C': '𝗖', 'D': '𝗗', 'E': '𝗘', 'F': '𝗙', 'G': '𝗚', 'H': '𝗛', 'I': '𝗜', 'J': '𝗝', 'K': '𝗞', 'L': '𝗟', 'M': '𝗠', 'N': '𝗡', 'O': '𝗢', 'P': '𝗣', 'Q': '𝗤', 'R': '𝗥', 'S': '𝗦', 'T': '𝗧', 'U': '𝗨', 'V': '𝗩', 'W': '𝗪', 'X': '𝗫', 'Y': '𝗬', 'Z': '𝗭',
@@ -52,6 +43,7 @@ const fontBoldSans = (text) => {
     return text.split('').map(char => map[char] || char).join('');
 };
 
+// Helper to convert text to Small Caps (Viral Content Style)
 const toSmallCaps = (text) => {
     const map = {
         'a': 'ᴀ', 'b': 'ʙ', 'c': 'ᴄ', 'd': 'ᴅ', 'e': 'ᴇ', 'f': 'ғ', 'g': 'ɢ', 'h': 'ʜ', 'i': 'ɪ', 'j': 'ᴊ', 'k': 'ᴋ', 'l': 'ʟ', 'm': 'ᴍ', 'n': 'ɴ', 'o': 'ᴏ', 'p': 'ᴘ', 'q': 'ǫ', 'r': 'ʀ', 's': 's', 't': 'ᴛ', 'u': 'ᴜ', 'v': 'ᴠ', 'w': 'ᴡ', 'x': 'x', 'y': 'ʏ', 'z': 'ᴢ',
@@ -76,11 +68,11 @@ const formatViralBox = (title, lines) => {
     const header = `╭─📂 ${fontBoldSans(title.toUpperCase())}`;
     let content = '';
     
-    // Check if lines is array or string
-    const linesArray = Array.isArray(lines) ? lines : lines.split('\n');
+    // Normalize input to array
+    const linesArray = Array.isArray(lines) ? lines : lines.toString().split('\n');
     
     linesArray.forEach(line => {
-        if (line.trim()) content += `│ ${line.trim()}\n`;
+        if (line && line.trim()) content += `│ ${line.trim()}\n`;
     });
     
     const footer = `╰──────────￫`;
@@ -90,7 +82,14 @@ const formatViralBox = (title, lines) => {
 // --- Helper: Send Styled Reply ---
 const sendReply = async (socket, from, text, ctx, options = {}) => {
     const { config, mongo } = ctx;
-    const number = socket.user.id.split(':')[0];
+    
+    // SAFELY get the bot number
+    let number;
+    try {
+        number = jidNormalizedUser(socket.user.id).split(':')[0];
+    } catch (e) {
+        number = config.OWNER_NUMBER; // Fallback if socket.user is not ready
+    }
     
     // Fetch user config for custom logo
     const userCfg = await mongo.loadUserConfigFromMongo(number) || {};
@@ -105,7 +104,7 @@ const sendReply = async (socket, from, text, ctx, options = {}) => {
         styledText = formatViralBox(title, text);
     }
 
-    // Determine if we need an image (always for menu/help/info, optional for others)
+    // Determine if we need an image (default true unless explicitly false)
     const useImage = options.useImage !== false; 
 
     if (useImage) {
@@ -125,7 +124,7 @@ const sendReply = async (socket, from, text, ctx, options = {}) => {
             headerType: 4
         }, { quoted: options.quoted || fakevcard });
     } else {
-        // Text-only reply (for simple errors or short confirmations)
+        // Text-only reply
         return socket.sendMessage(from, { 
             text: styledText + '\n\n> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ'
         }, { quoted: options.quoted || fakevcard });
@@ -141,35 +140,40 @@ module.exports = async function handleCommand(socket, msg, ctx) {
 
     if (!msg.message) return;
 
-    // 1. Message Normalization
+    // 1. Message Normalization & Body Extraction
+    // We handle buttons, list replies, and normal text here
     const messageContent = (getContentType(msg.message) === 'ephemeralMessage') ? msg.message.ephemeralMessage.message : msg.message;
     const type = getContentType(messageContent);
     const from = msg.key.remoteJid;
     const isGroup = from.endsWith('@g.us');
+
+    // Robust Body Extraction
+    let body = '';
+    if (type === 'conversation') body = messageContent.conversation;
+    else if (type === 'extendedTextMessage') body = messageContent.extendedTextMessage.text;
+    else if (type === 'imageMessage') body = messageContent.imageMessage.caption;
+    else if (type === 'videoMessage') body = messageContent.videoMessage.caption;
+    else if (type === 'buttonsResponseMessage') body = messageContent.buttonsResponseMessage.selectedButtonId;
+    else if (type === 'templateButtonReplyMessage') body = messageContent.templateButtonReplyMessage.selectedId;
+    else if (type === 'listResponseMessage') body = messageContent.listResponseMessage.singleSelectReply.selectedRowId;
+    else if (type === 'viewOnceMessage') body = messageContent.viewOnceMessage?.message?.imageMessage?.caption || '';
+
+    if (!body || typeof body !== 'string') return;
 
     // 2. Sender Identification
     const sender = isGroup ? (msg.key.participant || msg.participant) : msg.key.remoteJid;
     const senderNumber = sender.split('@')[0];
     const isOwner = senderNumber === config.OWNER_NUMBER.replace(/[^0-9]/g, '');
 
-    // 3. Body Extraction
-    const body = (type === 'conversation') ? messageContent.conversation :
-        (type === 'extendedTextMessage') ? messageContent.extendedTextMessage.text :
-        (type === 'imageMessage') ? messageContent.imageMessage.caption :
-        (type === 'videoMessage') ? messageContent.videoMessage.caption :
-        (type === 'buttonsResponseMessage') ? messageContent.buttonsResponseMessage?.selectedButtonId :
-        (type === 'listResponseMessage') ? messageContent.listResponseMessage?.singleSelectReply?.selectedRowId :
-        (type === 'viewOnceMessage') ? (messageContent.viewOnceMessage?.message?.imageMessage?.caption || '') : '';
-
-    if (!body || typeof body !== 'string') return;
-
-    // 4. Command Parsing
+    // 3. Command Parsing
     const prefix = config.PREFIX;
+    // Allow buttons (which might already have prefix) to work
     const isCmd = body.startsWith(prefix);
     const command = isCmd ? body.slice(prefix.length).trim().split(' ').shift().toLowerCase() : '';
     const args = body.trim().split(/ +/).slice(1);
     const text = args.join(" ");
     
+    // 4. Quoted Message Helper
     const quoted = msg.quoted ? msg.quoted : msg;
     const qmsg = (msg.quoted ? msg.quoted.message : messageContent);
     const mime = (qmsg.msg || qmsg).mimetype || '';
@@ -218,7 +222,8 @@ module.exports = async function handleCommand(socket, msg, ctx) {
             case 'menu': {
                 try { await socket.sendMessage(from, { react: { text: "📂", key: msg.key } }); } catch (e) { }
                 
-                const number = socket.user.id.split(':')[0];
+                // Safe number retrieval
+                const number = jidNormalizedUser(socket.user?.id || '').split(':')[0];
                 const userCfg = await mongo.loadUserConfigFromMongo(number) || {};
                 
                 const startTime = socketCreationTime.get(number) || Date.now();
@@ -227,6 +232,7 @@ module.exports = async function handleCommand(socket, msg, ctx) {
                 const minutes = Math.floor((uptime % 3600) / 60);
                 const seconds = Math.floor(uptime % 60);
 
+                // Build Menu Text
                 let menuText = formatViralBox('BOT INFO', 
 `. ${toSmallCaps('Name')}: ${userCfg.botName || config.BOT_NAME}
 . ${toSmallCaps('Owner')}: ${config.OWNER_NAME}
@@ -285,8 +291,12 @@ module.exports = async function handleCommand(socket, msg, ctx) {
 
             case 'ping': {
                 const start = Date.now();
-                const latency = Date.now() - (msg.messageTimestamp * 1000 || Date.now());
-                const number = socket.user.id.split(':')[0];
+                // Fix: Safely handle Timestamp calculation
+                const msgTime = msg.messageTimestamp;
+                const timestamp = (typeof msgTime === 'number' ? msgTime : (msgTime?.low || 0));
+                const latency = Date.now() - (timestamp * 1000);
+                
+                const number = jidNormalizedUser(socket.user?.id || '').split(':')[0];
                 const startTime = socketCreationTime.get(number) || Date.now();
                 const uptime = process.uptime().toFixed(0);
 
@@ -295,12 +305,12 @@ module.exports = async function handleCommand(socket, msg, ctx) {
 . ${toSmallCaps('Uptime')}: ${uptime}s
 . ${toSmallCaps('Date')}: ${new Date().toLocaleDateString()}
 `;
+                // Image is optional for ping to make it faster
                 await sendReply(socket, from, pingText, ctx, { title: 'SYSTEM STATUS', useImage: false });
                 break;
             }
 
             case 'help': {
-                // Combined lists for help
                 const helpText = formatViralBox('USER', `.menu\n.ping\n.info\n.runtime`) + "\n\n" +
                                  formatViralBox('TOOLS', `.sticker\n.toimg\n.toaudio\n.qr`) + "\n\n" +
                                  formatViralBox('OWNER', `.restart\n.broadcast\n.ban\n.unban`) + "\n\n" +
@@ -354,8 +364,7 @@ module.exports = async function handleCommand(socket, msg, ctx) {
                 break;
 
             case 'repeat':
-                if (!text) return sendReply(socket, from, 'Provide text to repeat', ctx, { title: 'ERROR' });
-                // Repeats text 3 times separated by newlines
+                if (!text) return sendReply(socket, from, 'Provide text to repeat.', ctx, { title: 'ERROR' });
                 const repeated = `${text}\n${text}\n${text}`;
                 await sendReply(socket, from, repeated, ctx, { title: 'REPEAT', useImage: false });
                 break;
@@ -538,8 +547,6 @@ module.exports = async function handleCommand(socket, msg, ctx) {
                 await mongo.updateGroupSettings(from, { 'anti.link': newVal });
                 await sendReply(socket, from, `Anti-link is ${newVal ? 'ON' : 'OFF'}`, ctx, { title: 'SECURITY' });
                 break;
-
-            // Add other toggles (antisticker, antiimg, etc.) similarly...
 
             default:
                 break;
