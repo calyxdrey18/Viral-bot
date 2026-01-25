@@ -45,7 +45,7 @@ const downloadMedia = async (msg) => {
 // --- Helper: Viral Box Formatter ---
 const formatViralBox = (title, text) => {
     const lines = text.trim().split('\n');
-    let box = `╭─📂 𝗕𝗢𝗟𝗗 ${title.toUpperCase()} 𝗕𝗢𝗟𝗗\n`;
+    let box = `╭─📂 ${title.toUpperCase()}\n`;
     lines.forEach(line => {
         if (line.trim()) box += `│ ${line.trim()}\n`;
     });
@@ -95,6 +95,35 @@ const sendTextReply = async (socket, from, text, ctx, options = {}) => {
         footer: '> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ',
         headerType: 1
     }, { quoted: options.quoted || fakevcard });
+};
+
+// --- Helper: Send Category Menu (with image) ---
+const sendCategoryMenu = async (socket, from, category, commands, ctx) => {
+    const { config, mongo } = ctx;
+    const number = socket.user.id.split(':')[0];
+    const userCfg = await mongo.loadUserConfigFromMongo(number) || {};
+    
+    const categoryText = formatViralBox(category.toUpperCase() + ' COMMANDS', commands);
+    
+    const img = userCfg.logo || config.FREE_IMAGE;
+    let imagePayload;
+    if (String(img).startsWith('http')) imagePayload = { url: img };
+    else try { imagePayload = fs.readFileSync(img); } catch (e) { imagePayload = { url: config.FREE_IMAGE }; }
+    
+    const buttons = [
+        { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "🏠 ᴍᴇɴᴜ" }, type: 1 },
+        { buttonId: `${config.PREFIX}usermenu`, buttonText: { displayText: "👤 ᴜsᴇʀ" }, type: 1 },
+        { buttonId: `${config.PREFIX}toolsmenu`, buttonText: { displayText: "🛠️ ᴛᴏᴏʟs" }, type: 1 },
+        { buttonId: `${config.PREFIX}groupmenu`, buttonText: { displayText: "👥 ɢʀᴏᴜᴘ" }, type: 1 }
+    ];
+
+    await socket.sendMessage(from, {
+        image: imagePayload,
+        caption: categoryText,
+        footer: '> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ',
+        buttons: buttons,
+        headerType: 4
+    }, { quoted: fakevcard });
 };
 
 /**
@@ -199,44 +228,14 @@ module.exports = async function handleCommand(socket, msg, ctx) {
                 );
 
                 menuText += '\n\n';
-                menuText += formatViralBox('USER COMMANDS', 
-`.menu
-.help
-.user
-.info
-.ping
-.runtime
-.id
-.profile`
+                menuText += formatViralBox('AVAILABLE CATEGORIES', 
+`👤 ᴜsᴇʀ ᴄᴏᴍᴍᴀɴᴅs
+🛠️ ᴛᴏᴏʟs ᴄᴏᴍᴍᴀɴᴅs
+👥 ɢʀᴏᴜᴘ ᴄᴏᴍᴍᴀɴᴅs
+👑 ᴏᴡɴᴇʀ ᴄᴏᴍᴍᴀɴᴅs`
                 );
 
-                menuText += '\n\n';
-                menuText += formatViralBox('TOOL COMMANDS', 
-`.sticker
-.toimg
-.toaudio
-.calc
-.qr
-.reverse
-.repeat
-.count
-.password
-.vv`
-                );
-
-                menuText += '\n\n';
-                menuText += formatViralBox('GROUP COMMANDS', 
-`.mute
-.unmute
-.setdesc
-.gsetname
-.lock
-.unlock
-.rules
-.setrules
-.welcome
-.goodbye`
-                );
+                menuText += '\n\nᴜsᴇ ʙᴜᴛᴛᴏɴs ʙᴇʟᴏᴡ ᴛᴏ ɴᴀᴠɪɢᴀᴛᴇ';
 
                 const img = userCfg.logo || config.FREE_IMAGE;
                 let imagePayload;
@@ -244,9 +243,10 @@ module.exports = async function handleCommand(socket, msg, ctx) {
                 else try { imagePayload = fs.readFileSync(img); } catch (e) { imagePayload = { url: config.FREE_IMAGE }; }
 
                 const buttons = [
-                    { buttonId: `${config.PREFIX}usercmd`, buttonText: { displayText: "👤 ᴜsᴇʀ" }, type: 1 },
-                    { buttonId: `${config.PREFIX}toolscmd`, buttonText: { displayText: "🛠️ ᴛᴏᴏʟs" }, type: 1 },
-                    { buttonId: `${config.PREFIX}groupcmd`, buttonText: { displayText: "👥 ɢʀᴏᴜᴘ" }, type: 1 }
+                    { buttonId: `${config.PREFIX}usermenu`, buttonText: { displayText: "👤 ᴜsᴇʀ" }, type: 1 },
+                    { buttonId: `${config.PREFIX}toolsmenu`, buttonText: { displayText: "🛠️ ᴛᴏᴏʟs" }, type: 1 },
+                    { buttonId: `${config.PREFIX}groupmenu`, buttonText: { displayText: "👥 ɢʀᴏᴜᴘ" }, type: 1 },
+                    { buttonId: `${config.PREFIX}owner`, buttonText: { displayText: "👑 ᴏᴡɴᴇʀ" }, type: 1 }
                 ];
 
                 await socket.sendMessage(from, {
@@ -259,35 +259,22 @@ module.exports = async function handleCommand(socket, msg, ctx) {
                 break;
             }
 
-            case 'usercmd': {
-                const userCmdText = formatViralBox('USER COMMANDS',
+            case 'usermenu': {
+                await sendCategoryMenu(socket, from, 'USER',
 `.menu
 .help
-.user
 .info
 .ping
 .runtime
 .id
-.profile`
-                );
-
-                const buttons = [
-                    { buttonId: `${config.PREFIX}toolscmd`, buttonText: { displayText: "🛠️ ᴛᴏᴏʟs" }, type: 1 },
-                    { buttonId: `${config.PREFIX}groupcmd`, buttonText: { displayText: "👥 ɢʀᴏᴜᴘ" }, type: 1 },
-                    { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "🏠 ᴍᴇɴᴜ" }, type: 1 }
-                ];
-
-                await socket.sendMessage(from, {
-                    text: userCmdText,
-                    footer: '> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ',
-                    buttons: buttons,
-                    headerType: 1
-                }, { quoted: fakevcard });
+.profile
+.user
+.owner`, ctx);
                 break;
             }
 
-            case 'toolscmd': {
-                const toolsCmdText = formatViralBox('TOOL COMMANDS',
+            case 'toolsmenu': {
+                await sendCategoryMenu(socket, from, 'TOOLS',
 `.sticker
 .toimg
 .toaudio
@@ -297,26 +284,12 @@ module.exports = async function handleCommand(socket, msg, ctx) {
 .repeat
 .count
 .password
-.vv`
-                );
-
-                const buttons = [
-                    { buttonId: `${config.PREFIX}usercmd`, buttonText: { displayText: "👤 ᴜsᴇʀ" }, type: 1 },
-                    { buttonId: `${config.PREFIX}groupcmd`, buttonText: { displayText: "👥 ɢʀᴏᴜᴘ" }, type: 1 },
-                    { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "🏠 ᴍᴇɴᴜ" }, type: 1 }
-                ];
-
-                await socket.sendMessage(from, {
-                    text: toolsCmdText,
-                    footer: '> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ',
-                    buttons: buttons,
-                    headerType: 1
-                }, { quoted: fakevcard });
+.vv`, ctx);
                 break;
             }
 
-            case 'groupcmd': {
-                const groupCmdText = formatViralBox('GROUP COMMANDS',
+            case 'groupmenu': {
+                await sendCategoryMenu(socket, from, 'GROUP',
 `.mute
 .unmute
 .setdesc
@@ -326,21 +299,15 @@ module.exports = async function handleCommand(socket, msg, ctx) {
 .rules
 .setrules
 .welcome
-.goodbye`
-                );
-
-                const buttons = [
-                    { buttonId: `${config.PREFIX}usercmd`, buttonText: { displayText: "👤 ᴜsᴇʀ" }, type: 1 },
-                    { buttonId: `${config.PREFIX}toolscmd`, buttonText: { displayText: "🛠️ ᴛᴏᴏʟs" }, type: 1 },
-                    { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "🏠 ᴍᴇɴᴜ" }, type: 1 }
-                ];
-
-                await socket.sendMessage(from, {
-                    text: groupCmdText,
-                    footer: '> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ',
-                    buttons: buttons,
-                    headerType: 1
-                }, { quoted: fakevcard });
+.goodbye
+.antilink
+.antisticker
+.antiaudio
+.antiimg
+.antivideo
+.antivv
+.antifile
+.antigcall`, ctx);
                 break;
             }
 
@@ -353,7 +320,10 @@ module.exports = async function handleCommand(socket, msg, ctx) {
                 );
 
                 const buttons = [
-                    { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "🏠 ᴍᴇɴᴜ" }, type: 1 }
+                    { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "🏠 ᴍᴇɴᴜ" }, type: 1 },
+                    { buttonId: `${config.PREFIX}usermenu`, buttonText: { displayText: "👤 ᴜsᴇʀ" }, type: 1 },
+                    { buttonId: `${config.PREFIX}toolsmenu`, buttonText: { displayText: "🛠️ ᴛᴏᴏʟs" }, type: 1 },
+                    { buttonId: `${config.PREFIX}groupmenu`, buttonText: { displayText: "👥 ɢʀᴏᴜᴘ" }, type: 1 }
                 ];
                 
                 await socket.sendMessage(from, {
@@ -383,7 +353,9 @@ module.exports = async function handleCommand(socket, msg, ctx) {
                 else try { pImage = fs.readFileSync(img); } catch (e) { pImage = { url: config.FREE_IMAGE }; }
                 
                 const buttons = [
-                    { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "🏠 ᴍᴇɴᴜ" }, type: 1 }
+                    { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "🏠 ᴍᴇɴᴜ" }, type: 1 },
+                    { buttonId: `${config.PREFIX}usermenu`, buttonText: { displayText: "👤 ᴜsᴇʀ" }, type: 1 },
+                    { buttonId: `${config.PREFIX}toolsmenu`, buttonText: { displayText: "🛠️ ᴛᴏᴏʟs" }, type: 1 }
                 ];
 
                 await socket.sendMessage(from, {
@@ -405,12 +377,13 @@ module.exports = async function handleCommand(socket, msg, ctx) {
                 helpText += formatViralBox('USER COMMANDS',
 `.menu
 .help
-.user
 .info
 .ping
 .runtime
 .id
-.profile`
+.profile
+.user
+.owner`
                 );
                 
                 helpText += '\n\n';
@@ -457,7 +430,15 @@ module.exports = async function handleCommand(socket, msg, ctx) {
 .rules
 .setrules
 .welcome
-.goodbye`
+.goodbye
+.antilink
+.antisticker
+.antiaudio
+.antiimg
+.antivideo
+.antivv
+.antifile
+.antigcall`
                 );
 
                 helpText += '\n\n';
@@ -479,9 +460,10 @@ module.exports = async function handleCommand(socket, msg, ctx) {
                 else try { imagePayload = fs.readFileSync(img); } catch (e) { imagePayload = { url: config.FREE_IMAGE }; }
 
                 const buttons = [
-                    { buttonId: `${config.PREFIX}usercmd`, buttonText: { displayText: "👤 ᴜsᴇʀ" }, type: 1 },
-                    { buttonId: `${config.PREFIX}toolscmd`, buttonText: { displayText: "🛠️ ᴛᴏᴏʟs" }, type: 1 },
-                    { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "🏠 ᴍᴇɴᴜ" }, type: 1 }
+                    { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "🏠 ᴍᴇɴᴜ" }, type: 1 },
+                    { buttonId: `${config.PREFIX}usermenu`, buttonText: { displayText: "👤 ᴜsᴇʀ" }, type: 1 },
+                    { buttonId: `${config.PREFIX}toolsmenu`, buttonText: { displayText: "🛠️ ᴛᴏᴏʟs" }, type: 1 },
+                    { buttonId: `${config.PREFIX}groupmenu`, buttonText: { displayText: "👥 ɢʀᴏᴜᴘ" }, type: 1 }
                 ];
 
                 await socket.sendMessage(from, {
@@ -495,18 +477,30 @@ module.exports = async function handleCommand(socket, msg, ctx) {
             }
 
             case 'user':
+                await sendCategoryMenu(socket, from, 'USER',
+`.menu
+.help
+.info
+.ping
+.runtime
+.id
+.profile
+.user
+.owner`, ctx);
+                break;
+
             case 'tools':
-                const buttons = [
-                    { buttonId: `${config.PREFIX}usercmd`, buttonText: { displayText: "👤 ᴜsᴇʀ" }, type: 1 },
-                    { buttonId: `${config.PREFIX}toolscmd`, buttonText: { displayText: "🛠️ ᴛᴏᴏʟs" }, type: 1 },
-                    { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "🏠 ᴍᴇɴᴜ" }, type: 1 }
-                ];
-                await socket.sendMessage(from, {
-                    text: formatViralBox('QUICK NAVIGATION', 'Click a button below to view commands:'),
-                    footer: '> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ',
-                    buttons: buttons,
-                    headerType: 1
-                }, { quoted: fakevcard });
+                await sendCategoryMenu(socket, from, 'TOOLS',
+`.sticker
+.toimg
+.toaudio
+.calc
+.qr
+.reverse
+.repeat
+.count
+.password
+.vv`, ctx);
                 break;
 
             case 'sticker':
@@ -581,10 +575,17 @@ module.exports = async function handleCommand(socket, msg, ctx) {
                  if (String(img).startsWith('http')) infoImage = { url: img };
                  else try { infoImage = fs.readFileSync(img); } catch (e) { infoImage = { url: config.FREE_IMAGE }; }
                  
+                 const buttons = [
+                    { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "🏠 ᴍᴇɴᴜ" }, type: 1 },
+                    { buttonId: `${config.PREFIX}usermenu`, buttonText: { displayText: "👤 ᴜsᴇʀ" }, type: 1 },
+                    { buttonId: `${config.PREFIX}toolsmenu`, buttonText: { displayText: "🛠️ ᴛᴏᴏʟs" }, type: 1 }
+                 ];
+                 
                  await socket.sendMessage(from, {
                      image: infoImage,
                      caption: formatViralBox('BOT INFO', infoRes),
                      footer: '> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ',
+                     buttons: buttons,
                      headerType: 4
                  }, { quoted: fakevcard });
                  break;
