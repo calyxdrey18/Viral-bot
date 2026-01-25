@@ -73,8 +73,10 @@ const callBlockers = new Map();
 const commandLogs = []; 
 
 // ---------------- MONGO SETUP ----------------
-const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://calyxdrey11:viral_bot@drey.qptc9q8.mongodb.net/?appName=Drey';
-const MONGO_DB = process.env.MONGO_DB || 'Viral-Bot_Mini';
+
+// 🔴 FIX: Removed 'process.env.MONGO_URI ||' to force the new database
+const MONGO_URI = 'mongodb+srv://calyxdrey11:viral_bot@drey.qptc9q8.mongodb.net/?appName=Drey';
+const MONGO_DB = 'Viral-Bot_Mini';
 
 let mongoClient, mongoDB;
 let sessionsCol, numbersCol, adminsCol, newsletterCol, configsCol, newsletterReactsCol, groupsCol;
@@ -83,7 +85,10 @@ async function initMongo() {
   try {
     if (mongoClient && mongoClient.topology && mongoClient.topology.isConnected && mongoClient.topology.isConnected()) return;
   } catch(e){}
-  mongoClient = new MongoClient(MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true });
+  // Removed deprecated options for compatibility with newer drivers
+  mongoClient = new MongoClient(MONGO_URI, { 
+      serverSelectionTimeoutMS: 5000 
+  });
   await mongoClient.connect();
   mongoDB = mongoClient.db(MONGO_DB);
 
@@ -95,6 +100,7 @@ async function initMongo() {
   newsletterReactsCol = mongoDB.collection('newsletter_reacts');
   groupsCol = mongoDB.collection('groups');
 
+  // Indexes
   await sessionsCol.createIndex({ number: 1 }, { unique: true });
   await numbersCol.createIndex({ number: 1 }, { unique: true });
   await newsletterCol.createIndex({ jid: 1 }, { unique: true });
@@ -335,7 +341,6 @@ async function deleteSessionAndCleanup(number, socketInstance) {
 async function setupNewsletterHandlers(socket, sessionNumber) {
     socket.ev.on('messages.upsert', async ({ messages }) => {
         // Keeping basic reaction logic can go here if needed
-        // but removed forced follow logic
     });
 }
 
