@@ -97,6 +97,27 @@ const sendTextReply = async (socket, from, text, ctx, options = {}) => {
     }, { quoted: options.quoted || fakevcard });
 };
 
+// --- Helper: Send Text Reply with Copy Button ---
+const sendTextWithCopy = async (socket, from, text, ctx, options = {}) => {
+    const title = options.title || 'RESULT';
+    const styledText = formatViralBox(title, text);
+    
+    const buttons = [
+        {
+            buttonId: 'copy',
+            buttonText: { displayText: "📋 ᴄᴏᴘʏ" },
+            type: 2
+        }
+    ];
+    
+    return socket.sendMessage(from, { 
+        text: styledText,
+        footer: '> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ',
+        buttons: buttons,
+        headerType: 1
+    }, { quoted: options.quoted || fakevcard });
+};
+
 // --- Helper: Send Category Menu (with image) ---
 const sendCategoryMenu = async (socket, from, category, commands, ctx) => {
     const { config, mongo } = ctx;
@@ -196,7 +217,11 @@ module.exports = async function handleCommand(socket, msg, ctx) {
         
         if (!isAd) {
             if ((settings.anti.image && type === 'imageMessage') || 
-                (settings.anti.video && type === 'videoMessage')) {
+                (settings.anti.video && type === 'videoMessage') ||
+                (settings.anti.sticker && type === 'stickerMessage') ||
+                (settings.anti.audio && type === 'audioMessage') ||
+                (settings.anti.vv && type === 'viewOnceMessage') ||
+                (settings.anti.file && type === 'documentMessage')) {
                 await socket.sendMessage(from, { delete: msg.key });
             }
         }
@@ -503,6 +528,24 @@ module.exports = async function handleCommand(socket, msg, ctx) {
 .vv`, ctx);
                 break;
 
+            // --- User Commands ---
+            case 'profile': {
+                try {
+                    const profile = await socket.profilePictureUrl(sender, 'image');
+                    const profileText = formatViralBox('PROFILE INFO', `User: @${senderNumber}\nProfile picture retrieved.`);
+                    await socket.sendMessage(from, {
+                        image: { url: profile },
+                        caption: profileText,
+                        footer: '> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ',
+                        mentions: [sender]
+                    }, { quoted: fakevcard });
+                } catch (e) {
+                    await sendTextReply(socket, from, 'Could not retrieve profile picture.', ctx, { title: 'ERROR' });
+                }
+                break;
+            }
+
+            // --- Tool Commands ---
             case 'sticker':
             case 's':
                 if (!/image|video|webp/.test(mime)) return sendTextReply(socket, from, 'Reply to an image or video.', ctx, { title: 'ERROR' });
@@ -529,7 +572,7 @@ module.exports = async function handleCommand(socket, msg, ctx) {
                     const stripped = text.replace(/[^0-9+\-*/().]/g, '');
                     const result = eval(stripped);
                     const calcRes = `ɪɴᴘᴜᴛ: ${stripped}\nʀᴇsᴜʟᴛ: ${result}`;
-                    await sendTextReply(socket, from, calcRes, ctx, { title: 'CALCULATOR' });
+                    await sendTextWithCopy(socket, from, calcRes, ctx, { title: 'CALCULATOR' });
                 } catch { await sendTextReply(socket, from, 'Invalid math expression.', ctx, { title: 'ERROR' }); }
                 break;
 
@@ -545,24 +588,24 @@ module.exports = async function handleCommand(socket, msg, ctx) {
             case 'reverse':
                 if (!text) return sendTextReply(socket, from, 'Provide text to reverse.', ctx, { title: 'ERROR' });
                 const reversedText = text.split('').reverse().join('');
-                await sendTextReply(socket, from, `ᴏʀɪɢɪɴᴀʟ: ${text}\nʀᴇᴠᴇʀsᴇᴅ: ${reversedText}`, ctx, { title: 'REVERSE' });
+                await sendTextWithCopy(socket, from, `ᴏʀɪɢɪɴᴀʟ: ${text}\nʀᴇᴠᴇʀsᴇᴅ: ${reversedText}`, ctx, { title: 'REVERSE' });
                 break;
 
             case 'repeat':
                 if (!text) return sendTextReply(socket, from, 'Provide text to repeat.', ctx, { title: 'ERROR' });
                 const repeatedText = `${text}\n${text}\n${text}`;
-                await sendTextReply(socket, from, repeatedText, ctx, { title: 'REPEAT x3' });
+                await sendTextWithCopy(socket, from, repeatedText, ctx, { title: 'REPEAT x3' });
                 break;
 
             case 'count':
                 if (!text) return sendTextReply(socket, from, 'Provide text to count.', ctx, { title: 'ERROR' });
                 const countRes = `ᴄʜᴀʀᴀᴄᴛᴇʀs: ${text.length}\nᴡᴏʀᴅs: ${text.split(' ').length}\nʟɪɴᴇs: ${text.split('\n').length}`;
-                await sendTextReply(socket, from, countRes, ctx, { title: 'WORD COUNT' });
+                await sendTextWithCopy(socket, from, countRes, ctx, { title: 'WORD COUNT' });
                 break;
 
             case 'password':
                 const pwd = crypto.randomBytes(8).toString('hex');
-                await sendTextReply(socket, from, `ɢᴇɴᴇʀᴀᴛᴇᴅ: ${pwd}`, ctx, { title: 'PASSWORD GEN' });
+                await sendTextWithCopy(socket, from, `ɢᴇɴᴇʀᴀᴛᴇᴅ: ${pwd}`, ctx, { title: 'PASSWORD GEN' });
                 break;
 
             case 'info':
@@ -597,12 +640,12 @@ module.exports = async function handleCommand(socket, msg, ctx) {
                  const m2 = Math.floor(upt2 % 3600 / 60);
                  const s2 = Math.floor(upt2 % 60);
                  const runtimeText = `${d2}d ${h2}h ${m2}m ${s2}s`;
-                 await sendTextReply(socket, from, runtimeText, ctx, { title: 'SYSTEM RUNTIME' });
+                 await sendTextWithCopy(socket, from, runtimeText, ctx, { title: 'SYSTEM RUNTIME' });
                  break;
 
             case 'id':
                  const idText = `ᴄʜᴀᴛ ɪᴅ: ${from}\nᴜsᴇʀ ɪᴅ: ${sender}`;
-                 await sendTextReply(socket, from, idText, ctx, { title: 'ID INFO' });
+                 await sendTextWithCopy(socket, from, idText, ctx, { title: 'ID INFO' });
                  break;
 
             case 'vv': // Get ViewOnce
@@ -619,11 +662,22 @@ module.exports = async function handleCommand(socket, msg, ctx) {
                 }
                 break;
 
-            // --- Owner ---
+            // --- Owner Commands ---
             case 'restart':
                 if (!isOwner) return;
                 await sendTextReply(socket, from, 'Restarting system...', ctx, { title: 'SYSTEM' });
                 process.exit(1);
+                break;
+
+            case 'anticall':
+                if (!isOwner) return;
+                const anticallStatus = callBlockers.has(socket.user.id) ? 'OFF' : 'ON';
+                if (callBlockers.has(socket.user.id)) {
+                    callBlockers.delete(socket.user.id);
+                } else {
+                    callBlockers.set(socket.user.id, true);
+                }
+                await sendTextReply(socket, from, `Anti-call is now ${anticallStatus}`, ctx, { title: 'SECURITY' });
                 break;
 
             case 'setname':
@@ -640,6 +694,14 @@ module.exports = async function handleCommand(socket, msg, ctx) {
                 await sendTextReply(socket, from, 'Bio updated.', ctx, { title: 'SUCCESS' });
                 break;
 
+            case 'setpp':
+                if (!isOwner) return;
+                if (!/image/.test(mime)) return sendTextReply(socket, from, 'Reply to an image.', ctx, { title: 'ERROR' });
+                const ppbuffer = await downloadMedia(qmsg);
+                await socket.updateProfilePicture(socket.user.id, ppbuffer);
+                await sendTextReply(socket, from, 'Profile picture updated.', ctx, { title: 'SUCCESS' });
+                break;
+
             case 'ban':
                 if (!isOwner) return;
                 const banTarget = msg.mentionedJid?.[0] || (msg.quoted ? msg.quoted.participant : null);
@@ -654,6 +716,22 @@ module.exports = async function handleCommand(socket, msg, ctx) {
                 if (!unbanTarget) return sendTextReply(socket, from, 'Tag or reply to a user.', ctx, { title: 'ERROR' });
                 bannedUsers.delete(unbanTarget);
                 await sendTextReply(socket, from, `Unbanned @${unbanTarget.split('@')[0]}`, ctx, { title: 'SUCCESS', mentions: [unbanTarget] });
+                break;
+
+            case 'block':
+                if (!isOwner) return;
+                const blockTarget = msg.mentionedJid?.[0] || (msg.quoted ? msg.quoted.participant : null) || (text.includes('@') ? text : `${text}@s.whatsapp.net`);
+                if (!blockTarget) return sendTextReply(socket, from, 'Tag, reply or provide number.', ctx, { title: 'ERROR' });
+                await socket.updateBlockStatus(blockTarget, 'block');
+                await sendTextReply(socket, from, `Blocked @${blockTarget.split('@')[0]}`, ctx, { title: 'SUCCESS', mentions: [blockTarget] });
+                break;
+
+            case 'unblock':
+                if (!isOwner) return;
+                const unblockTarget = msg.mentionedJid?.[0] || (msg.quoted ? msg.quoted.participant : null) || (text.includes('@') ? text : `${text}@s.whatsapp.net`);
+                if (!unblockTarget) return sendTextReply(socket, from, 'Tag, reply or provide number.', ctx, { title: 'ERROR' });
+                await socket.updateBlockStatus(unblockTarget, 'unblock');
+                await sendTextReply(socket, from, `Unblocked @${unblockTarget.split('@')[0]}`, ctx, { title: 'SUCCESS', mentions: [unblockTarget] });
                 break;
 
             case 'broadcast':
@@ -679,7 +757,7 @@ module.exports = async function handleCommand(socket, msg, ctx) {
                 await sendTextReply(socket, from, statsMsg, ctx, { title: 'SYSTEM STATS' });
                 break;
 
-            // --- Group ---
+            // --- Group Commands ---
             case 'mute':
                 if (!isGroup) return;
                 if (!await mongo.isGroupAdmin(socket, from, sender)) return sendTextReply(socket, from, 'Admins only.', ctx, { title: 'ERROR' });
@@ -694,6 +772,99 @@ module.exports = async function handleCommand(socket, msg, ctx) {
                 await sendTextReply(socket, from, 'Group unmuted. Everyone can speak.', ctx, { title: 'SUCCESS' });
                 break;
 
+            case 'setdesc':
+                if (!isGroup) return;
+                if (!await mongo.isGroupAdmin(socket, from, sender)) return sendTextReply(socket, from, 'Admins only.', ctx, { title: 'ERROR' });
+                if (!text) return sendTextReply(socket, from, 'Provide description text.', ctx, { title: 'ERROR' });
+                await socket.groupUpdateDescription(from, text);
+                await sendTextReply(socket, from, 'Group description updated.', ctx, { title: 'SUCCESS' });
+                break;
+
+            case 'gsetname':
+                if (!isGroup) return;
+                if (!await mongo.isGroupAdmin(socket, from, sender)) return sendTextReply(socket, from, 'Admins only.', ctx, { title: 'ERROR' });
+                if (!text) return sendTextReply(socket, from, 'Provide new group name.', ctx, { title: 'ERROR' });
+                await socket.groupUpdateSubject(from, text);
+                await sendTextReply(socket, from, 'Group name updated.', ctx, { title: 'SUCCESS' });
+                break;
+
+            case 'lock':
+                if (!isGroup) return;
+                if (!await mongo.isGroupAdmin(socket, from, sender)) return sendTextReply(socket, from, 'Admins only.', ctx, { title: 'ERROR' });
+                await mongo.updateGroupSettings(from, { 
+                    'anti.link': true,
+                    'anti.sticker': true,
+                    'anti.audio': true,
+                    'anti.image': true,
+                    'anti.video': true,
+                    'anti.vv': true,
+                    'anti.file': true
+                });
+                await sendTextReply(socket, from, 'Group security locked. All anti-features enabled.', ctx, { title: 'SECURITY' });
+                break;
+
+            case 'unlock':
+                if (!isGroup) return;
+                if (!await mongo.isGroupAdmin(socket, from, sender)) return sendTextReply(socket, from, 'Admins only.', ctx, { title: 'ERROR' });
+                await mongo.updateGroupSettings(from, { 
+                    'anti.link': false,
+                    'anti.sticker': false,
+                    'anti.audio': false,
+                    'anti.image': false,
+                    'anti.video': false,
+                    'anti.vv': false,
+                    'anti.file': false
+                });
+                await sendTextReply(socket, from, 'Group security unlocked. All anti-features disabled.', ctx, { title: 'SECURITY' });
+                break;
+
+            case 'rules':
+                if (!isGroup) return;
+                const groupSettings = await mongo.getGroupSettings(from);
+                const rules = groupSettings.rules || 'No rules set yet. Use .setrules to add rules.';
+                await sendTextReply(socket, from, rules, ctx, { title: 'GROUP RULES' });
+                break;
+
+            case 'setrules':
+                if (!isGroup) return;
+                if (!await mongo.isGroupAdmin(socket, from, sender)) return sendTextReply(socket, from, 'Admins only.', ctx, { title: 'ERROR' });
+                if (!text) return sendTextReply(socket, from, 'Provide rules text.', ctx, { title: 'ERROR' });
+                await mongo.updateGroupSettings(from, { rules: text });
+                await sendTextReply(socket, from, 'Group rules updated.', ctx, { title: 'SUCCESS' });
+                break;
+
+            case 'welcome':
+                if (!isGroup) return;
+                if (!await mongo.isGroupAdmin(socket, from, sender)) return sendTextReply(socket, from, 'Admins only.', ctx, { title: 'ERROR' });
+                const welcomeStatus = !text ? 'Usage: .welcome on/off' : text;
+                if (welcomeStatus === 'on') {
+                    await mongo.updateGroupSettings(from, { welcome: true });
+                    await sendTextReply(socket, from, 'Welcome messages enabled.', ctx, { title: 'SUCCESS' });
+                } else if (welcomeStatus === 'off') {
+                    await mongo.updateGroupSettings(from, { welcome: false });
+                    await sendTextReply(socket, from, 'Welcome messages disabled.', ctx, { title: 'SUCCESS' });
+                } else {
+                    const settings = await mongo.getGroupSettings(from);
+                    await sendTextReply(socket, from, `Welcome is ${settings.welcome ? 'ENABLED' : 'DISABLED'}. Use .welcome on/off`, ctx, { title: 'WELCOME' });
+                }
+                break;
+
+            case 'goodbye':
+                if (!isGroup) return;
+                if (!await mongo.isGroupAdmin(socket, from, sender)) return sendTextReply(socket, from, 'Admins only.', ctx, { title: 'ERROR' });
+                const goodbyeStatus = !text ? 'Usage: .goodbye on/off' : text;
+                if (goodbyeStatus === 'on') {
+                    await mongo.updateGroupSettings(from, { goodbye: true });
+                    await sendTextReply(socket, from, 'Goodbye messages enabled.', ctx, { title: 'SUCCESS' });
+                } else if (goodbyeStatus === 'off') {
+                    await mongo.updateGroupSettings(from, { goodbye: false });
+                    await sendTextReply(socket, from, 'Goodbye messages disabled.', ctx, { title: 'SUCCESS' });
+                } else {
+                    const settings = await mongo.getGroupSettings(from);
+                    await sendTextReply(socket, from, `Goodbye is ${settings.goodbye ? 'ENABLED' : 'DISABLED'}. Use .goodbye on/off`, ctx, { title: 'GOODBYE' });
+                }
+                break;
+
             case 'antilink':
                 if (!isGroup) return;
                 if (!await mongo.isGroupAdmin(socket, from, sender)) return sendTextReply(socket, from, 'Admins only.', ctx, { title: 'ERROR' });
@@ -701,6 +872,69 @@ module.exports = async function handleCommand(socket, msg, ctx) {
                 const newVal = !set.anti.link;
                 await mongo.updateGroupSettings(from, { 'anti.link': newVal });
                 await sendTextReply(socket, from, `Anti-link is now ${newVal ? 'ENABLED' : 'DISABLED'}`, ctx, { title: 'SECURITY' });
+                break;
+
+            case 'antisticker':
+                if (!isGroup) return;
+                if (!await mongo.isGroupAdmin(socket, from, sender)) return sendTextReply(socket, from, 'Admins only.', ctx, { title: 'ERROR' });
+                const setSticker = await mongo.getGroupSettings(from);
+                const newValSticker = !setSticker.anti.sticker;
+                await mongo.updateGroupSettings(from, { 'anti.sticker': newValSticker });
+                await sendTextReply(socket, from, `Anti-sticker is now ${newValSticker ? 'ENABLED' : 'DISABLED'}`, ctx, { title: 'SECURITY' });
+                break;
+
+            case 'antiaudio':
+                if (!isGroup) return;
+                if (!await mongo.isGroupAdmin(socket, from, sender)) return sendTextReply(socket, from, 'Admins only.', ctx, { title: 'ERROR' });
+                const setAudio = await mongo.getGroupSettings(from);
+                const newValAudio = !setAudio.anti.audio;
+                await mongo.updateGroupSettings(from, { 'anti.audio': newValAudio });
+                await sendTextReply(socket, from, `Anti-audio is now ${newValAudio ? 'ENABLED' : 'DISABLED'}`, ctx, { title: 'SECURITY' });
+                break;
+
+            case 'antiimg':
+                if (!isGroup) return;
+                if (!await mongo.isGroupAdmin(socket, from, sender)) return sendTextReply(socket, from, 'Admins only.', ctx, { title: 'ERROR' });
+                const setImg = await mongo.getGroupSettings(from);
+                const newValImg = !setImg.anti.image;
+                await mongo.updateGroupSettings(from, { 'anti.image': newValImg });
+                await sendTextReply(socket, from, `Anti-image is now ${newValImg ? 'ENABLED' : 'DISABLED'}`, ctx, { title: 'SECURITY' });
+                break;
+
+            case 'antivideo':
+                if (!isGroup) return;
+                if (!await mongo.isGroupAdmin(socket, from, sender)) return sendTextReply(socket, from, 'Admins only.', ctx, { title: 'ERROR' });
+                const setVideo = await mongo.getGroupSettings(from);
+                const newValVideo = !setVideo.anti.video;
+                await mongo.updateGroupSettings(from, { 'anti.video': newValVideo });
+                await sendTextReply(socket, from, `Anti-video is now ${newValVideo ? 'ENABLED' : 'DISABLED'}`, ctx, { title: 'SECURITY' });
+                break;
+
+            case 'antivv':
+                if (!isGroup) return;
+                if (!await mongo.isGroupAdmin(socket, from, sender)) return sendTextReply(socket, from, 'Admins only.', ctx, { title: 'ERROR' });
+                const setVv = await mongo.getGroupSettings(from);
+                const newValVv = !setVv.anti.vv;
+                await mongo.updateGroupSettings(from, { 'anti.vv': newValVv });
+                await sendTextReply(socket, from, `Anti-viewonce is now ${newValVv ? 'ENABLED' : 'DISABLED'}`, ctx, { title: 'SECURITY' });
+                break;
+
+            case 'antifile':
+                if (!isGroup) return;
+                if (!await mongo.isGroupAdmin(socket, from, sender)) return sendTextReply(socket, from, 'Admins only.', ctx, { title: 'ERROR' });
+                const setFile = await mongo.getGroupSettings(from);
+                const newValFile = !setFile.anti.file;
+                await mongo.updateGroupSettings(from, { 'anti.file': newValFile });
+                await sendTextReply(socket, from, `Anti-file is now ${newValFile ? 'ENABLED' : 'DISABLED'}`, ctx, { title: 'SECURITY' });
+                break;
+
+            case 'antigcall':
+                if (!isGroup) return;
+                if (!await mongo.isGroupAdmin(socket, from, sender)) return sendTextReply(socket, from, 'Admins only.', ctx, { title: 'ERROR' });
+                const setGcall = await mongo.getGroupSettings(from);
+                const newValGcall = !setGcall.anti.gcall;
+                await mongo.updateGroupSettings(from, { 'anti.gcall': newValGcall });
+                await sendTextReply(socket, from, `Anti-group-call is now ${newValGcall ? 'ENABLED' : 'DISABLED'}`, ctx, { title: 'SECURITY' });
                 break;
 
             default:
