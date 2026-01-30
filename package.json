@@ -29,7 +29,7 @@
     "file-type": "21.0.0",
     "axios": "^1.2.5",
     "moment-timezone": "^0.6.0",
-    "mongodb": "^5.7.0",
+    "crypto": "^1.0.1",
     "telegraph-uploader": "2.0.0",
     "imgbb-uploader": "1.5.1",
     "@blackamda/telegram-image-url": "1.0.0"
