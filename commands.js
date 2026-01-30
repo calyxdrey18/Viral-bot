@@ -1,10 +1,13 @@
 const { 
     getContentType, 
-    downloadContentFromMessage,
-    downloadContentFromMessage: downloadMediaContent
+    downloadContentFromMessage, 
+    jidNormalizedUser 
 } = require('baileys');
 const fs = require('fs-extra');
+const path = require('path');
+const moment = require('moment-timezone');
 const crypto = require('crypto');
+const { exec } = require('child_process');
 
 // 🔹 Fake contact with dynamic bot name (Global Constant)
 const fakevcard = {
@@ -28,18 +31,20 @@ END:VCARD`
     }
 };
 
+// In-memory storage (no MongoDB)
+const userConfigs = new Map();
+const groupSettings = new Map();
+const activeSessions = new Map();
+
 // --- Helper: Download Media ---
 const downloadMedia = async (msg) => {
     try {
         const type = Object.keys(msg)[0];
-        const stream = await downloadMediaContent(msg[type], type.replace('Message', ''));
+        const stream = await downloadContentFromMessage(msg[type], type.replace('Message', ''));
         let buffer = Buffer.from([]);
         for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
         return buffer;
-    } catch (e) { 
-        console.error('Download media error:', e);
-        return null; 
-    }
+    } catch (e) { return null; }
 };
 
 // --- Helper: Viral Box Formatter ---
@@ -56,39 +61,43 @@ const formatViralBox = (title, text) => {
 // --- Helper: Send Styled Reply (Image + Caption) ---
 const sendReply = async (socket, from, text, ctx, options = {}) => {
     const { config } = ctx;
+    const number = socket.user.id.split(':')[0];
+    
+    // Fetch user config from memory
+    const userCfg = userConfigs.get(number) || {};
+    const imgSource = userCfg.logo || config.FREE_IMAGE || config.IMAGE_PATH;
     
     // Apply Viral Formatting
     const title = options.title || 'BOT NOTICE';
     const styledText = formatViralBox(title, text);
 
     let imagePayload;
-    if (String(config.FREE_IMAGE).startsWith('http')) {
-        imagePayload = { url: config.FREE_IMAGE };
+    if (String(imgSource).startsWith('http')) {
+        imagePayload = { url: imgSource };
     } else {
         try { 
-            imagePayload = fs.readFileSync(config.FREE_IMAGE); 
+            imagePayload = fs.readFileSync(imgSource); 
         } catch (e) { 
-            imagePayload = { url: config.FREE_IMAGE }; 
+            imagePayload = { url: config.FREE_IMAGE || config.IMAGE_PATH }; 
         }
     }
 
     return socket.sendMessage(from, { 
         image: imagePayload,
         caption: styledText,
-        footer: config.BOT_FOOTER,
+        footer: '> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ',
         headerType: 4
     }, { quoted: options.quoted || fakevcard });
 };
 
 // --- Helper: Send Text Only Reply ---
 const sendTextReply = async (socket, from, text, ctx, options = {}) => {
-    const { config } = ctx;
     const title = options.title || 'BOT NOTICE';
     const styledText = formatViralBox(title, text);
     
     return socket.sendMessage(from, { 
         text: styledText,
-        footer: config.BOT_FOOTER,
+        footer: '> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ',
         headerType: 1
     }, { quoted: options.quoted || fakevcard });
 };
@@ -96,12 +105,15 @@ const sendTextReply = async (socket, from, text, ctx, options = {}) => {
 // --- Helper: Send Category Menu (with image) ---
 const sendCategoryMenu = async (socket, from, category, commands, ctx) => {
     const { config } = ctx;
+    const number = socket.user.id.split(':')[0];
+    const userCfg = userConfigs.get(number) || {};
     
     const categoryText = formatViralBox(category.toUpperCase() + ' COMMANDS', commands);
     
+    const img = userCfg.logo || config.FREE_IMAGE || config.IMAGE_PATH;
     let imagePayload;
-    if (String(config.FREE_IMAGE).startsWith('http')) imagePayload = { url: config.FREE_IMAGE };
-    else try { imagePayload = fs.readFileSync(config.FREE_IMAGE); } catch (e) { imagePayload = { url: config.FREE_IMAGE }; }
+    if (String(img).startsWith('http')) imagePayload = { url: img };
+    else try { imagePayload = fs.readFileSync(img); } catch (e) { imagePayload = { url: config.FREE_IMAGE || config.IMAGE_PATH }; }
     
     const buttons = [
         { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "🏠 ᴍᴇɴᴜ" }, type: 1 },
@@ -113,80 +125,36 @@ const sendCategoryMenu = async (socket, from, category, commands, ctx) => {
     await socket.sendMessage(from, {
         image: imagePayload,
         caption: categoryText,
-        footer: config.BOT_FOOTER,
+        footer: '> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ',
         buttons: buttons,
         headerType: 4
     }, { quoted: fakevcard });
 };
 
-// Simple in-memory storage
-class SimpleStorage {
-    constructor() {
-        this.bannedUsers = new Set();
-        this.callBlockers = new Set();
-        this.commandLogs = [];
-        this.activeSockets = new Map();
-        this.groupSettings = new Map();
-        this.socketCreationTime = new Map();
-    }
-
-    // Group settings management
-    getGroupSettings(groupId) {
-        if (!this.groupSettings.has(groupId)) {
-            this.groupSettings.set(groupId, {
-                muted: false,
-                anti: {
-                    link: false,
-                    image: false,
-                    video: false,
-                    audio: false,
-                    sticker: false,
-                    vv: false,
-                    file: false,
-                    gcall: false
-                },
-                welcome: '',
-                goodbye: '',
-                rules: ''
-            });
-        }
-        return this.groupSettings.get(groupId);
-    }
-
-    updateGroupSettings(groupId, updates) {
-        const current = this.getGroupSettings(groupId);
-        this.groupSettings.set(groupId, { ...current, ...updates });
-    }
-}
-
-// Group admin check functions
-async function isGroupAdmin(socket, groupId, userId) {
+// --- Helper: Check if user is group admin ---
+const isGroupAdmin = async (socket, groupJid, userJid) => {
     try {
-        const metadata = await socket.groupMetadata(groupId);
-        const participants = metadata.participants || [];
-        const user = participants.find(p => p.id === userId);
-        return user ? (user.admin === 'admin' || user.admin === 'superadmin') : false;
-    } catch (error) {
-        console.error('Admin check error:', error);
-        return false;
-    }
-}
+        const metadata = await socket.groupMetadata(groupJid);
+        const participant = metadata.participants.find(p => p.id === userJid);
+        return participant && ['admin', 'superadmin'].includes(participant.admin);
+    } catch { return false; }
+};
 
-async function isBotAdmin(socket, groupId) {
+// --- Helper: Check if bot is admin ---
+const isBotAdmin = async (socket, groupJid) => {
+    const botJid = socket.user.id.split(':')[0] + '@s.whatsapp.net';
     try {
-        const botId = socket.user.id;
-        return await isGroupAdmin(socket, groupId, botId);
-    } catch (error) {
-        return false;
-    }
-}
+        const metadata = await socket.groupMetadata(groupJid);
+        const participant = metadata.participants.find(p => p.id === botJid);
+        return participant && ['admin', 'superadmin'].includes(participant.admin);
+    } catch { return false; }
+};
 
 /**
  * Main Command Handler Function
  */
 module.exports = async function handleCommand(socket, msg, ctx) {
-    const { config } = ctx;
-    const store = new SimpleStorage();
+    const { config, store } = ctx;
     const { bannedUsers, callBlockers, socketCreationTime, commandLogs } = store;
 
     if (!msg.message) return;
@@ -226,8 +194,7 @@ module.exports = async function handleCommand(socket, msg, ctx) {
 
     // --- LOGGING ---
     if (isCmd) {
-        const timestamp = new Date().toLocaleTimeString();
-        const logEntry = `[${timestamp}] CMD: ${command} FROM: ${senderNumber} IN: ${isGroup ? 'Group' : 'DM'}`;
+        const logEntry = `[${moment().format('HH:mm:ss')}] CMD: ${command} FROM: ${senderNumber} IN: ${isGroup ? 'Group' : 'DM'}`;
         console.log(logEntry);
         commandLogs.push(logEntry);
         if (commandLogs.length > 15) commandLogs.shift();
@@ -238,7 +205,25 @@ module.exports = async function handleCommand(socket, msg, ctx) {
 
     // Group Settings Checks
     if (isGroup) {
-        const settings = store.getGroupSettings(from);
+        // Get group settings from memory
+        let settings = groupSettings.get(from);
+        if (!settings) {
+            settings = {
+                muted: false,
+                anti: {
+                    link: false,
+                    sticker: false,
+                    audio: false,
+                    image: false,
+                    video: false,
+                    viewonce: false,
+                    file: false,
+                    gcall: false
+                }
+            };
+            groupSettings.set(from, settings);
+        }
+        
         const isAd = await isGroupAdmin(socket, from, sender);
         const isBotAd = await isBotAdmin(socket, from);
 
@@ -269,6 +254,7 @@ module.exports = async function handleCommand(socket, msg, ctx) {
                 try { await socket.sendMessage(from, { react: { text: "📂", key: msg.key } }); } catch (e) { }
                 
                 const number = socket.user.id.split(':')[0];
+                const userCfg = userConfigs.get(number) || {};
                 
                 const startTime = socketCreationTime.get(number) || Date.now();
                 const uptime = Math.floor((Date.now() - startTime) / 1000);
@@ -277,7 +263,7 @@ module.exports = async function handleCommand(socket, msg, ctx) {
                 const seconds = Math.floor(uptime % 60);
 
                 let menuText = formatViralBox('BOT INFO', 
-`• ɴᴀᴍᴇ: ${config.BOT_NAME}
+`• ɴᴀᴍᴇ: ${userCfg.botName || config.BOT_NAME}
 • ᴏᴡɴᴇʀ: ${config.OWNER_NAME}
 • ᴠᴇʀsɪᴏɴ: ${config.BOT_VERSION}
 • ᴜᴘᴛɪᴍᴇ: ${hours}h ${minutes}m ${seconds}s`
@@ -291,11 +277,12 @@ module.exports = async function handleCommand(socket, msg, ctx) {
 👑 ᴏᴡɴᴇʀ ᴄᴏᴍᴍᴀɴᴅs`
                 );
 
-                menuText += '\n\nᴜsᴇ ʙᴜᴛᴛᴏɴs ʙᴇʟᴏᴡ ᴛᴏ ɴᴀᴠɪɢᴀᴛᴇ';
+                menuText += '\n\nᴜsᴇ ʙᴜᴛᴛᴏɴs ʙᴇʟᴏᴡ ᴛᴏ ɴᴀᴠɪɴᴀᴠɪɢᴀᴛᴇ';
 
+                const img = userCfg.logo || config.FREE_IMAGE || config.IMAGE_PATH;
                 let imagePayload;
-                if (String(config.FREE_IMAGE).startsWith('http')) imagePayload = { url: config.FREE_IMAGE };
-                else try { imagePayload = fs.readFileSync(config.FREE_IMAGE); } catch (e) { imagePayload = { url: config.FREE_IMAGE }; }
+                if (String(img).startsWith('http')) imagePayload = { url: img };
+                else try { imagePayload = fs.readFileSync(img); } catch (e) { imagePayload = { url: config.FREE_IMAGE || config.IMAGE_PATH }; }
 
                 const buttons = [
                     { buttonId: `${config.PREFIX}usermenu`, buttonText: { displayText: "👤 ᴜsᴇʀ" }, type: 1 },
@@ -307,7 +294,7 @@ module.exports = async function handleCommand(socket, msg, ctx) {
                 await socket.sendMessage(from, {
                     image: imagePayload,
                     caption: menuText,
-                    footer: config.BOT_FOOTER,
+                    footer: '> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ',
                     buttons: buttons,
                     headerType: 4
                 }, { quoted: fakevcard });
@@ -383,7 +370,7 @@ module.exports = async function handleCommand(socket, msg, ctx) {
                 
                 await socket.sendMessage(from, {
                      text: ownerText,
-                     footer: config.BOT_FOOTER,
+                     footer: '> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ',
                      buttons: buttons,
                      headerType: 1
                 }, { quoted: fakevcard });
@@ -392,16 +379,20 @@ module.exports = async function handleCommand(socket, msg, ctx) {
 
             case 'ping': {
                 const latency = Date.now() - (msg.messageTimestamp * 1000 || Date.now());
+                const number = socket.user.id.split(':')[0];
+                const userCfg = userConfigs.get(number) || {};
+                const botName = userCfg.botName || 'Viral-Bot-Mini';
 
                 const pingText = formatViralBox('SYSTEM STATUS',
-`• ʙᴏᴛ: ${config.BOT_NAME}
+`• ʙᴏᴛ: ${botName}
 • ʟᴀᴛᴇɴᴄʏ: ${latency}ms
 • sᴇʀᴠᴇʀ ᴛɪᴍᴇ: ${new Date().toLocaleString()}`
                 );
 
+                const img = userCfg.logo || config.FREE_IMAGE || config.IMAGE_PATH;
                 let pImage;
-                if (String(config.FREE_IMAGE).startsWith('http')) pImage = { url: config.FREE_IMAGE };
-                else try { pImage = fs.readFileSync(config.FREE_IMAGE); } catch (e) { pImage = { url: config.FREE_IMAGE }; }
+                if (String(img).startsWith('http')) pImage = { url: img };
+                else try { pImage = fs.readFileSync(img); } catch (e) { pImage = { url: config.FREE_IMAGE || config.IMAGE_PATH }; }
                 
                 const buttons = [
                     { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "🏠 ᴍᴇɴᴜ" }, type: 1 },
@@ -412,7 +403,7 @@ module.exports = async function handleCommand(socket, msg, ctx) {
                 await socket.sendMessage(from, {
                     image: pImage,
                     caption: pingText,
-                    footer: config.BOT_FOOTER,
+                    footer: '> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ',
                     buttons: buttons,
                     headerType: 4
                 }, { quoted: fakevcard });
@@ -420,6 +411,9 @@ module.exports = async function handleCommand(socket, msg, ctx) {
             }
 
             case 'help': {
+                const number = socket.user.id.split(':')[0];
+                const userCfg = userConfigs.get(number) || {};
+                
                 let helpText = '';
                 
                 helpText += formatViralBox('USER COMMANDS',
@@ -489,22 +483,10 @@ module.exports = async function handleCommand(socket, msg, ctx) {
 .antigcall`
                 );
 
-                helpText += '\n\n';
-
-                helpText += formatViralBox('SECURITY',
-`.antilink
-.antisticker
-.antiaudio
-.antiimg
-.antivideo
-.antivv
-.antifile
-.antigcall`
-                );
-
+                const img = userCfg.logo || config.FREE_IMAGE || config.IMAGE_PATH;
                 let imagePayload;
-                if (String(config.FREE_IMAGE).startsWith('http')) imagePayload = { url: config.FREE_IMAGE };
-                else try { imagePayload = fs.readFileSync(config.FREE_IMAGE); } catch (e) { imagePayload = { url: config.FREE_IMAGE }; }
+                if (String(img).startsWith('http')) imagePayload = { url: img };
+                else try { imagePayload = fs.readFileSync(img); } catch (e) { imagePayload = { url: config.FREE_IMAGE || config.IMAGE_PATH }; }
 
                 const buttons = [
                     { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "🏠 ᴍᴇɴᴜ" }, type: 1 },
@@ -516,7 +498,7 @@ module.exports = async function handleCommand(socket, msg, ctx) {
                 await socket.sendMessage(from, {
                     image: imagePayload,
                     caption: helpText,
-                    footer: config.BOT_FOOTER,
+                    footer: '> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ',
                     buttons: buttons,
                     headerType: 4
                 }, { quoted: fakevcard });
@@ -585,7 +567,7 @@ module.exports = async function handleCommand(socket, msg, ctx) {
                 await socket.sendMessage(from, { 
                     image: { url: `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(text)}` }, 
                     caption: formatViralBox('QR GENERATOR', `ᴛᴇxᴛ: ${text}`),
-                    footer: config.BOT_FOOTER
+                    footer: '> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ' 
                 }, { quoted: fakevcard });
                 break;
 
@@ -613,11 +595,14 @@ module.exports = async function handleCommand(socket, msg, ctx) {
                 break;
 
             case 'info':
-                 const infoRes = `ɴᴀᴍᴇ: ${config.BOT_NAME}\nᴏᴡɴᴇʀ: ${config.OWNER_NAME}\nɴᴜᴍʙᴇʀ: ${config.OWNER_NUMBER}\nᴠᴇʀsɪᴏɴ: ${config.BOT_VERSION}`;
+                 const number = socket.user.id.split(':')[0];
+                 const userCfg = userConfigs.get(number) || {};
+                 const infoRes = `ɴᴀᴍᴇ: ${userCfg.botName || config.BOT_NAME}\nᴏᴡɴᴇʀ: ${config.OWNER_NAME}\nɴᴜᴍʙᴇʀ: ${config.OWNER_NUMBER}\nᴠᴇʀsɪᴏɴ: ${config.BOT_VERSION}`;
                  
+                 const img = userCfg.logo || config.FREE_IMAGE || config.IMAGE_PATH;
                  let infoImage;
-                 if (String(config.FREE_IMAGE).startsWith('http')) infoImage = { url: config.FREE_IMAGE };
-                 else try { infoImage = fs.readFileSync(config.FREE_IMAGE); } catch (e) { infoImage = { url: config.FREE_IMAGE }; }
+                 if (String(img).startsWith('http')) infoImage = { url: img };
+                 else try { infoImage = fs.readFileSync(img); } catch (e) { infoImage = { url: config.FREE_IMAGE || config.IMAGE_PATH }; }
                  
                  const buttons = [
                     { buttonId: `${config.PREFIX}menu`, buttonText: { displayText: "🏠 ᴍᴇɴᴜ" }, type: 1 },
@@ -628,7 +613,7 @@ module.exports = async function handleCommand(socket, msg, ctx) {
                  await socket.sendMessage(from, {
                      image: infoImage,
                      caption: formatViralBox('BOT INFO', infoRes),
-                     footer: config.BOT_FOOTER,
+                     footer: '> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ',
                      buttons: buttons,
                      headerType: 4
                  }, { quoted: fakevcard });
@@ -651,7 +636,7 @@ module.exports = async function handleCommand(socket, msg, ctx) {
 
             case 'vv': // Get ViewOnce
                 if (!quoted.message.viewOnceMessageV2 && !quoted.message.viewOnceMessage) return sendTextReply(socket, from, 'Reply to a ViewOnce message.', ctx, { title: 'ERROR' });
-                const viewMedia = await downloadMediaContent(quoted.message.viewOnceMessageV2?.message?.imageMessage || quoted.message.viewOnceMessage?.message?.imageMessage || quoted.message.viewOnceMessageV2?.message?.videoMessage, quoted.message.viewOnceMessageV2?.message?.videoMessage ? 'video' : 'image');
+                const viewMedia = await downloadContentFromMessage(quoted.message.viewOnceMessageV2?.message?.imageMessage || quoted.message.viewOnceMessage?.message?.imageMessage || quoted.message.viewOnceMessageV2?.message?.videoMessage, quoted.message.viewOnceMessageV2?.message?.videoMessage ? 'video' : 'image');
                 let buffer = Buffer.from([]);
                 for await (const chunk of viewMedia) buffer = Buffer.concat([buffer, chunk]);
                 
@@ -688,7 +673,7 @@ module.exports = async function handleCommand(socket, msg, ctx) {
                 if (!isOwner) return;
                 const banTarget = msg.mentionedJid?.[0] || (msg.quoted ? msg.quoted.participant : null);
                 if (!banTarget) return sendTextReply(socket, from, 'Tag or reply to a user.', ctx, { title: 'ERROR' });
-                bannedUsers.add(banTarget);
+                bannedUsers.set(banTarget, true);
                 await sendTextReply(socket, from, `Banned @${banTarget.split('@')[0]}`, ctx, { title: 'SUCCESS', mentions: [banTarget] });
                 break;
             
@@ -703,11 +688,16 @@ module.exports = async function handleCommand(socket, msg, ctx) {
             case 'broadcast':
                 if (!isOwner) return;
                 if (!text) return sendTextReply(socket, from, 'Provide text to broadcast.', ctx, { title: 'ERROR' });
-                // Note: Without DB, broadcast can only send to current chat
-                await sendTextReply(socket, from, 'Broadcast feature requires database. Sending to current chat only.', ctx, { title: 'INFO' });
-                await socket.sendMessage(from, { 
-                    text: `╭─📂 𝗕𝗢𝗟𝗗 𝗕𝗥𝗢𝗔𝗗𝗖𝗔𝗦𝗧 𝗕𝗢𝗟𝗗\n│ ${text}\n╰──────────￫\n${config.BOT_FOOTER}`
-                });
+                // Since no MongoDB, broadcast to active sessions only
+                const activeNumbers = Array.from(activeSessions.keys());
+                for (let n of activeNumbers) {
+                    try {
+                        await socket.sendMessage(n + '@s.whatsapp.net', { 
+                            text: `╭─📂 𝗕𝗢𝗟𝗗 𝗕𝗥𝗢𝗔𝗗𝗖𝗔𝗦𝗧 𝗕𝗢𝗟𝗗\n│ ${text}\n╰──────────￫\n> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ` 
+                        }).catch(()=>{});
+                    } catch(e) {}
+                }
+                await sendTextReply(socket, from, `Broadcast sent to ${activeNumbers.length} active users.`, ctx, { title: 'SUCCESS' });
                 break;
 
             case 'logs':
@@ -718,7 +708,7 @@ module.exports = async function handleCommand(socket, msg, ctx) {
 
             case 'stats':
                 if (!isOwner) return;
-                const count = 1; // Single socket
+                const count = activeSessions.size;
                 const statsMsg = `sᴇssɪᴏɴs: ${count}\nʙᴀɴɴᴇᴅ: ${bannedUsers.size}\nᴜᴘᴛɪᴍᴇ: ${process.uptime().toFixed(0)}s`;
                 await sendTextReply(socket, from, statsMsg, ctx, { title: 'SYSTEM STATS' });
                 break;
@@ -727,127 +717,41 @@ module.exports = async function handleCommand(socket, msg, ctx) {
             case 'mute':
                 if (!isGroup) return;
                 if (!await isGroupAdmin(socket, from, sender)) return sendTextReply(socket, from, 'Admins only.', ctx, { title: 'ERROR' });
-                store.updateGroupSettings(from, { muted: true });
+                let settings = groupSettings.get(from);
+                if (!settings) {
+                    settings = { muted: true, anti: {} };
+                    groupSettings.set(from, settings);
+                } else {
+                    settings.muted = true;
+                }
                 await sendTextReply(socket, from, 'Group muted. Only admins can speak.', ctx, { title: 'SUCCESS' });
                 break;
 
             case 'unmute':
                 if (!isGroup) return;
                 if (!await isGroupAdmin(socket, from, sender)) return sendTextReply(socket, from, 'Admins only.', ctx, { title: 'ERROR' });
-                store.updateGroupSettings(from, { muted: false });
+                settings = groupSettings.get(from);
+                if (settings) {
+                    settings.muted = false;
+                }
                 await sendTextReply(socket, from, 'Group unmuted. Everyone can speak.', ctx, { title: 'SUCCESS' });
                 break;
 
             case 'antilink':
                 if (!isGroup) return;
                 if (!await isGroupAdmin(socket, from, sender)) return sendTextReply(socket, from, 'Admins only.', ctx, { title: 'ERROR' });
-                const set = store.getGroupSettings(from);
-                const newVal = !set.anti.link;
-                store.updateGroupSettings(from, { 'anti.link': newVal });
-                await sendTextReply(socket, from, `Anti-link is now ${newVal ? 'ENABLED' : 'DISABLED'}`, ctx, { title: 'SECURITY' });
-                break;
-
-            case 'setdesc':
-                if (!isGroup) return;
-                if (!await isGroupAdmin(socket, from, sender)) return sendTextReply(socket, from, 'Admins only.', ctx, { title: 'ERROR' });
-                if (!text) return sendTextReply(socket, from, 'Provide description text.', ctx, { title: 'ERROR' });
-                await socket.groupUpdateDescription(from, text);
-                await sendTextReply(socket, from, 'Group description updated.', ctx, { title: 'SUCCESS' });
-                break;
-
-            case 'gsetname':
-                if (!isGroup) return;
-                if (!await isGroupAdmin(socket, from, sender)) return sendTextReply(socket, from, 'Admins only.', ctx, { title: 'ERROR' });
-                if (!text) return sendTextReply(socket, from, 'Provide new group name.', ctx, { title: 'ERROR' });
-                await socket.groupUpdateSubject(from, text);
-                await sendTextReply(socket, from, 'Group name updated.', ctx, { title: 'SUCCESS' });
-                break;
-
-            case 'welcome':
-                if (!isGroup) return;
-                if (!await isGroupAdmin(socket, from, sender)) return sendTextReply(socket, from, 'Admins only.', ctx, { title: 'ERROR' });
-                if (!text) return sendTextReply(socket, from, 'Provide welcome message.', ctx, { title: 'ERROR' });
-                store.updateGroupSettings(from, { welcome: text });
-                await sendTextReply(socket, from, 'Welcome message set.', ctx, { title: 'SUCCESS' });
-                break;
-
-            case 'goodbye':
-                if (!isGroup) return;
-                if (!await isGroupAdmin(socket, from, sender)) return sendTextReply(socket, from, 'Admins only.', ctx, { title: 'ERROR' });
-                if (!text) return sendTextReply(socket, from, 'Provide goodbye message.', ctx, { title: 'ERROR' });
-                store.updateGroupSettings(from, { goodbye: text });
-                await sendTextReply(socket, from, 'Goodbye message set.', ctx, { title: 'SUCCESS' });
-                break;
-
-            case 'rules':
-                if (!isGroup) return;
-                const rules = store.getGroupSettings(from).rules;
-                if (!rules) return sendTextReply(socket, from, 'No rules set yet.', ctx, { title: 'INFO' });
-                await sendTextReply(socket, from, `📜 ɢʀᴏᴜᴘ ʀᴜʟᴇs:\n${rules}`, ctx, { title: 'RULES' });
-                break;
-
-            case 'setrules':
-                if (!isGroup) return;
-                if (!await isGroupAdmin(socket, from, sender)) return sendTextReply(socket, from, 'Admins only.', ctx, { title: 'ERROR' });
-                if (!text) return sendTextReply(socket, from, 'Provide rules text.', ctx, { title: 'ERROR' });
-                store.updateGroupSettings(from, { rules: text });
-                await sendTextReply(socket, from, 'Group rules updated.', ctx, { title: 'SUCCESS' });
-                break;
-
-            case 'lock':
-                if (!isGroup) return;
-                if (!await isGroupAdmin(socket, from, sender)) return sendTextReply(socket, from, 'Admins only.', ctx, { title: 'ERROR' });
-                // Enable all anti-features
-                store.updateGroupSettings(from, {
-                    'anti.link': true,
-                    'anti.image': true,
-                    'anti.video': true,
-                    'anti.audio': true,
-                    'anti.sticker': true,
-                    'anti.vv': true,
-                    'anti.file': true,
-                    'anti.gcall': true,
-                    muted: true
-                });
-                await sendTextReply(socket, from, 'Group locked. All restrictions enabled.', ctx, { title: 'SECURITY' });
-                break;
-
-            case 'unlock':
-                if (!isGroup) return;
-                if (!await isGroupAdmin(socket, from, sender)) return sendTextReply(socket, from, 'Admins only.', ctx, { title: 'ERROR' });
-                // Disable all anti-features
-                store.updateGroupSettings(from, {
-                    'anti.link': false,
-                    'anti.image': false,
-                    'anti.video': false,
-                    'anti.audio': false,
-                    'anti.sticker': false,
-                    'anti.vv': false,
-                    'anti.file': false,
-                    'anti.gcall': false,
-                    muted: false
-                });
-                await sendTextReply(socket, from, 'Group unlocked. All restrictions disabled.', ctx, { title: 'SECURITY' });
-                break;
-
-            case 'profile':
-                try {
-                    const profile = await socket.profilePictureUrl(sender, 'image');
-                    await socket.sendMessage(from, { 
-                        image: { url: profile },
-                        caption: formatViralBox('PROFILE', `User: @${senderNumber}`),
-                        footer: config.BOT_FOOTER
-                    }, { mentions: [sender] });
-                } catch (e) {
-                    await sendTextReply(socket, from, 'No profile picture found.', ctx, { title: 'INFO' });
+                settings = groupSettings.get(from);
+                if (!settings) {
+                    settings = { muted: false, anti: { link: true } };
+                    groupSettings.set(from, settings);
+                } else {
+                    if (!settings.anti) settings.anti = {};
+                    settings.anti.link = !settings.anti.link;
                 }
+                await sendTextReply(socket, from, `Anti-link is now ${settings.anti.link ? 'ENABLED' : 'DISABLED'}`, ctx, { title: 'SECURITY' });
                 break;
 
             default:
-                // Unknown command
-                if (isCmd) {
-                    await sendTextReply(socket, from, `Command "${command}" not found. Use ${prefix}help for commands list.`, ctx, { title: 'ERROR' });
-                }
                 break;
         }
 
