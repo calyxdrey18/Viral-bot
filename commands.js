@@ -34,7 +34,6 @@ END:VCARD`
 // In-memory storage (no MongoDB)
 const userConfigs = new Map();
 const groupSettings = new Map();
-const activeSessions = new Map();
 
 // --- Helper: Download Media ---
 const downloadMedia = async (msg) => {
@@ -44,7 +43,10 @@ const downloadMedia = async (msg) => {
         let buffer = Buffer.from([]);
         for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
         return buffer;
-    } catch (e) { return null; }
+    } catch (e) { 
+        console.error('Download media error:', e);
+        return null; 
+    }
 };
 
 // --- Helper: Viral Box Formatter ---
@@ -137,17 +139,30 @@ const isGroupAdmin = async (socket, groupJid, userJid) => {
         const metadata = await socket.groupMetadata(groupJid);
         const participant = metadata.participants.find(p => p.id === userJid);
         return participant && ['admin', 'superadmin'].includes(participant.admin);
-    } catch { return false; }
+    } catch (e) { 
+        console.error('isGroupAdmin error:', e);
+        return false; 
+    }
 };
 
 // --- Helper: Check if bot is admin ---
 const isBotAdmin = async (socket, groupJid) => {
-    const botJid = socket.user.id.split(':')[0] + '@s.whatsapp.net';
     try {
+        const botJid = socket.user.id.split(':')[0] + '@s.whatsapp.net';
         const metadata = await socket.groupMetadata(groupJid);
         const participant = metadata.participants.find(p => p.id === botJid);
         return participant && ['admin', 'superadmin'].includes(participant.admin);
-    } catch { return false; }
+    } catch (e) { 
+        console.error('isBotAdmin error:', e);
+        return false; 
+    }
+};
+
+// --- Helper: Get active sessions count ---
+const getActiveSessionsCount = () => {
+    // This would come from the pair.js module
+    // For now, return a placeholder
+    return 'Check /code/active endpoint';
 };
 
 /**
@@ -201,7 +216,10 @@ module.exports = async function handleCommand(socket, msg, ctx) {
     }
 
     // --- CHECKS ---
-    if (bannedUsers.has(sender)) return;
+    if (bannedUsers.has(sender)) {
+        console.log(`Blocked banned user: ${sender}`);
+        return;
+    }
 
     // Group Settings Checks
     if (isGroup) {
@@ -227,19 +245,35 @@ module.exports = async function handleCommand(socket, msg, ctx) {
         const isAd = await isGroupAdmin(socket, from, sender);
         const isBotAd = await isBotAdmin(socket, from);
 
-        if (settings.muted && !isCmd && !isAd) return;
+        if (settings.muted && !isCmd && !isAd) {
+            console.log(`Blocked message in muted group: ${from}`);
+            return;
+        }
 
         if (settings.anti.link && !isAd) {
             if (body.match(/(chat.whatsapp.com\/|whatsapp.com\/channel\/)/gi)) {
-                await socket.sendMessage(from, { delete: msg.key });
-                if (isBotAd) await socket.sendMessage(from, { text: `🚫 @${senderNumber}, Links are not allowed!`, mentions: [sender] });
+                try {
+                    await socket.sendMessage(from, { delete: msg.key });
+                    if (isBotAd) {
+                        await socket.sendMessage(from, { 
+                            text: `🚫 @${senderNumber}, Links are not allowed!`, 
+                            mentions: [sender] 
+                        });
+                    }
+                } catch (e) {
+                    console.error('Anti-link error:', e);
+                }
             }
         }
         
         if (!isAd) {
             if ((settings.anti.image && type === 'imageMessage') || 
                 (settings.anti.video && type === 'videoMessage')) {
-                await socket.sendMessage(from, { delete: msg.key });
+                try {
+                    await socket.sendMessage(from, { delete: msg.key });
+                } catch (e) {
+                    console.error('Media delete error:', e);
+                }
             }
         }
     }
@@ -251,7 +285,11 @@ module.exports = async function handleCommand(socket, msg, ctx) {
         switch (command) {
 
             case 'menu': {
-                try { await socket.sendMessage(from, { react: { text: "📂", key: msg.key } }); } catch (e) { }
+                try { 
+                    await socket.sendMessage(from, { 
+                        react: { text: "📂", key: msg.key } 
+                    }); 
+                } catch (e) { }
                 
                 const number = socket.user.id.split(':')[0];
                 const userCfg = userConfigs.get(number) || {};
@@ -457,7 +495,8 @@ module.exports = async function handleCommand(socket, msg, ctx) {
 .block
 .unblock
 .logs
-.stats`
+.stats
+.reconnect`
                 );
 
                 helpText += '\n\n';
@@ -536,20 +575,32 @@ module.exports = async function handleCommand(socket, msg, ctx) {
             case 's':
                 if (!/image|video|webp/.test(mime)) return sendTextReply(socket, from, 'Reply to an image or video.', ctx, { title: 'ERROR' });
                 const sbuffer = await downloadMedia(qmsg);
-                await socket.sendMessage(from, { sticker: sbuffer }, { quoted: fakevcard });
+                if (sbuffer) {
+                    await socket.sendMessage(from, { sticker: sbuffer }, { quoted: fakevcard });
+                } else {
+                    await sendTextReply(socket, from, 'Failed to download media.', ctx, { title: 'ERROR' });
+                }
                 break;
 
             case 'toimg':
                 if (!/webp/.test(mime)) return sendTextReply(socket, from, 'Reply to a sticker.', ctx, { title: 'ERROR' });
                 const wbuffer = await downloadMedia(qmsg);
-                const toImgCap = formatViralBox('SUCCESS', 'Sticker converted to image.');
-                await socket.sendMessage(from, { image: wbuffer, caption: toImgCap }, { quoted: fakevcard });
+                if (wbuffer) {
+                    const toImgCap = formatViralBox('SUCCESS', 'Sticker converted to image.');
+                    await socket.sendMessage(from, { image: wbuffer, caption: toImgCap }, { quoted: fakevcard });
+                } else {
+                    await sendTextReply(socket, from, 'Failed to convert sticker.', ctx, { title: 'ERROR' });
+                }
                 break;
 
             case 'toaudio':
                 if (!/video/.test(mime)) return sendTextReply(socket, from, 'Reply to a video.', ctx, { title: 'ERROR' });
                 const vbuffer = await downloadMedia(qmsg);
-                await socket.sendMessage(from, { audio: vbuffer, mimetype: 'audio/mp4', ptt: false }, { quoted: fakevcard });
+                if (vbuffer) {
+                    await socket.sendMessage(from, { audio: vbuffer, mimetype: 'audio/mp4', ptt: false }, { quoted: fakevcard });
+                } else {
+                    await sendTextReply(socket, from, 'Failed to extract audio.', ctx, { title: 'ERROR' });
+                }
                 break;
 
             case 'calc':
@@ -559,7 +610,9 @@ module.exports = async function handleCommand(socket, msg, ctx) {
                     const result = eval(stripped);
                     const calcRes = `ɪɴᴘᴜᴛ: ${stripped}\nʀᴇsᴜʟᴛ: ${result}`;
                     await sendTextReply(socket, from, calcRes, ctx, { title: 'CALCULATOR' });
-                } catch { await sendTextReply(socket, from, 'Invalid math expression.', ctx, { title: 'ERROR' }); }
+                } catch { 
+                    await sendTextReply(socket, from, 'Invalid math expression.', ctx, { title: 'ERROR' }); 
+                }
                 break;
 
             case 'qr':
@@ -635,16 +688,27 @@ module.exports = async function handleCommand(socket, msg, ctx) {
                  break;
 
             case 'vv': // Get ViewOnce
-                if (!quoted.message.viewOnceMessageV2 && !quoted.message.viewOnceMessage) return sendTextReply(socket, from, 'Reply to a ViewOnce message.', ctx, { title: 'ERROR' });
-                const viewMedia = await downloadContentFromMessage(quoted.message.viewOnceMessageV2?.message?.imageMessage || quoted.message.viewOnceMessage?.message?.imageMessage || quoted.message.viewOnceMessageV2?.message?.videoMessage, quoted.message.viewOnceMessageV2?.message?.videoMessage ? 'video' : 'image');
-                let buffer = Buffer.from([]);
-                for await (const chunk of viewMedia) buffer = Buffer.concat([buffer, chunk]);
-                
-                const cap = formatViralBox('SUCCESS', 'ViewOnce Recovered');
-                if (quoted.message.viewOnceMessageV2?.message?.videoMessage) {
-                    await socket.sendMessage(from, { video: buffer, caption: cap }, { quoted: fakevcard });
-                } else {
-                    await socket.sendMessage(from, { image: buffer, caption: cap }, { quoted: fakevcard });
+                if (!quoted.message.viewOnceMessageV2 && !quoted.message.viewOnceMessage) {
+                    return sendTextReply(socket, from, 'Reply to a ViewOnce message.', ctx, { title: 'ERROR' });
+                }
+                try {
+                    const viewMedia = await downloadContentFromMessage(
+                        quoted.message.viewOnceMessageV2?.message?.imageMessage || 
+                        quoted.message.viewOnceMessage?.message?.imageMessage || 
+                        quoted.message.viewOnceMessageV2?.message?.videoMessage, 
+                        quoted.message.viewOnceMessageV2?.message?.videoMessage ? 'video' : 'image'
+                    );
+                    let buffer = Buffer.from([]);
+                    for await (const chunk of viewMedia) buffer = Buffer.concat([buffer, chunk]);
+                    
+                    const cap = formatViralBox('SUCCESS', 'ViewOnce Recovered');
+                    if (quoted.message.viewOnceMessageV2?.message?.videoMessage) {
+                        await socket.sendMessage(from, { video: buffer, caption: cap }, { quoted: fakevcard });
+                    } else {
+                        await socket.sendMessage(from, { image: buffer, caption: cap }, { quoted: fakevcard });
+                    }
+                } catch (e) {
+                    await sendTextReply(socket, from, 'Failed to recover ViewOnce.', ctx, { title: 'ERROR' });
                 }
                 break;
 
@@ -652,7 +716,13 @@ module.exports = async function handleCommand(socket, msg, ctx) {
             case 'restart':
                 if (!isOwner) return;
                 await sendTextReply(socket, from, 'Restarting system...', ctx, { title: 'SYSTEM' });
-                process.exit(1);
+                setTimeout(() => process.exit(1), 2000);
+                break;
+
+            case 'reconnect':
+                if (!isOwner) return;
+                await sendTextReply(socket, from, 'Reconnecting... This may take a moment.', ctx, { title: 'SYSTEM' });
+                // The actual reconnection is handled by the auto-restart handler
                 break;
 
             case 'setname':
@@ -689,26 +759,31 @@ module.exports = async function handleCommand(socket, msg, ctx) {
                 if (!isOwner) return;
                 if (!text) return sendTextReply(socket, from, 'Provide text to broadcast.', ctx, { title: 'ERROR' });
                 // Since no MongoDB, broadcast to active sessions only
-                const activeNumbers = Array.from(activeSessions.keys());
+                const activeNumbers = Array.from(store.activeSockets.keys());
+                let sentCount = 0;
                 for (let n of activeNumbers) {
                     try {
                         await socket.sendMessage(n + '@s.whatsapp.net', { 
                             text: `╭─📂 𝗕𝗢𝗟𝗗 𝗕𝗥𝗢𝗔𝗗𝗖𝗔𝗦𝗧 𝗕𝗢𝗟𝗗\n│ ${text}\n╰──────────￫\n> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴄᴀʟʏx sᴛᴜᴅɪᴏ` 
-                        }).catch(()=>{});
-                    } catch(e) {}
+                        });
+                        sentCount++;
+                        await new Promise(resolve => setTimeout(resolve, 500)); // Delay to avoid rate limiting
+                    } catch(e) {
+                        console.error(`Failed to send broadcast to ${n}:`, e.message);
+                    }
                 }
-                await sendTextReply(socket, from, `Broadcast sent to ${activeNumbers.length} active users.`, ctx, { title: 'SUCCESS' });
+                await sendTextReply(socket, from, `Broadcast sent to ${sentCount}/${activeNumbers.length} active users.`, ctx, { title: 'SUCCESS' });
                 break;
 
             case 'logs':
                 if (!isOwner) return;
-                const logsText = commandLogs.join('\n') || 'No logs available.';
+                const logsText = commandLogs.slice(-20).join('\n') || 'No logs available.';
                 await sendTextReply(socket, from, logsText, ctx, { title: 'SYSTEM LOGS' });
                 break;
 
             case 'stats':
                 if (!isOwner) return;
-                const count = activeSessions.size;
+                const count = store.activeSockets.size;
                 const statsMsg = `sᴇssɪᴏɴs: ${count}\nʙᴀɴɴᴇᴅ: ${bannedUsers.size}\nᴜᴘᴛɪᴍᴇ: ${process.uptime().toFixed(0)}s`;
                 await sendTextReply(socket, from, statsMsg, ctx, { title: 'SYSTEM STATS' });
                 break;
@@ -752,13 +827,14 @@ module.exports = async function handleCommand(socket, msg, ctx) {
                 break;
 
             default:
+                // Unknown command - ignore silently
                 break;
         }
 
     } catch (err) {
         console.error('Command handler error:', err);
         try { 
-            const errorMsg = formatViralBox('SYSTEM ERROR', err.message);
+            const errorMsg = formatViralBox('SYSTEM ERROR', err.message.substring(0, 100));
             await socket.sendMessage(from, { text: errorMsg }); 
         } catch (e) { }
     }

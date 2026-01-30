@@ -29,6 +29,7 @@
       --border: rgba(37, 211, 102, 0.2);
       --success: #25D366;
       --error: #ff4444;
+      --warning: #ffc107;
       --glass: rgba(255, 255, 255, 0.05);
     }
     
@@ -74,7 +75,7 @@
       width: 100%;
       padding: 20px 40px;
       display: flex;
-      justify-content: space-between; /* Changed to space-between for menu */
+      justify-content: space-between;
       align-items: center;
       z-index: 1000;
       backdrop-filter: blur(10px);
@@ -504,6 +505,36 @@
       gap: 8px;
     }
 
+    .success-box {
+      background: rgba(37, 211, 102, 0.1);
+      border: 1px solid rgba(37, 211, 102, 0.3);
+      color: var(--primary-light);
+      padding: 20px;
+      border-radius: 12px;
+      margin-top: 20px;
+      text-align: center;
+    }
+
+    .info-box {
+      background: rgba(52, 183, 241, 0.1);
+      border: 1px solid rgba(52, 183, 241, 0.3);
+      color: var(--accent);
+      padding: 20px;
+      border-radius: 12px;
+      margin-top: 20px;
+      text-align: center;
+    }
+
+    .warning-box {
+      background: rgba(255, 193, 7, 0.1);
+      border: 1px solid rgba(255, 193, 7, 0.3);
+      color: #ffc107;
+      padding: 20px;
+      border-radius: 12px;
+      margin-top: 20px;
+      text-align: center;
+    }
+
     .info-bar {
       margin-top: 30px;
       padding-top: 20px;
@@ -545,10 +576,53 @@
       display: flex;
       align-items: center;
       gap: 12px;
+      max-width: 350px;
     }
 
     .notification.show {
       transform: translateX(0);
+    }
+
+    .notification.error {
+      border-left-color: var(--error);
+    }
+
+    .notification.warning {
+      border-left-color: var(--warning);
+    }
+
+    .notification.info {
+      border-left-color: var(--accent);
+    }
+
+    /* Stats Container */
+    .stats-container {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 15px;
+      margin: 20px 0;
+    }
+
+    .stat-card {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 10px;
+      padding: 15px;
+      text-align: center;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .stat-number {
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--primary);
+      margin-bottom: 5px;
+    }
+
+    .stat-label {
+      font-size: 12px;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 1px;
     }
 
     @keyframes spin { to { transform: rotate(360deg); } }
@@ -557,12 +631,73 @@
     /* Utility to hide/show sections */
     .hidden { display: none !important; }
 
+    /* Responsive */
+    @media (max-width: 768px) {
+      .navbar {
+        padding: 15px 20px;
+      }
+      
+      .logo-text {
+        font-size: 20px;
+      }
+      
+      .nav-menu {
+        gap: 15px;
+      }
+      
+      .hero-title {
+        font-size: 32px;
+      }
+      
+      .hero-desc {
+        font-size: 14px;
+      }
+      
+      .pairing-card {
+        padding: 30px 20px;
+      }
+      
+      .avatar-container {
+        margin-top: -70px;
+        width: 80px;
+        height: 80px;
+      }
+    }
+
     @media (max-width: 480px) {
-      .hero-title { font-size: 32px; }
-      .navbar { justify-content: space-between; padding: 15px; }
-      .nav-menu { display: none; } /* Add hamburger later if needed */
-      .pairing-card { padding: 30px 20px 20px; }
-      .avatar-container { margin-top: -60px; }
+      .navbar {
+        flex-direction: column;
+        gap: 15px;
+        padding: 15px;
+      }
+      
+      .nav-menu {
+        gap: 10px;
+        font-size: 12px;
+      }
+      
+      .hero-title {
+        font-size: 28px;
+      }
+      
+      .hero-img-container {
+        width: 150px;
+        height: 150px;
+      }
+      
+      .features-grid {
+        grid-template-columns: 1fr;
+      }
+      
+      .action-row {
+        flex-direction: column;
+      }
+      
+      .notification {
+        left: 10px;
+        right: 10px;
+        max-width: calc(100% - 20px);
+      }
     }
   </style>
 </head>
@@ -581,6 +716,7 @@
       <a class="nav-item active" onclick="switchTab('home')">Home</a>
       <a class="nav-item" onclick="switchTab('features')">Features</a>
       <a class="nav-item" onclick="switchTab('pair')">Pair</a>
+      <a class="nav-item" onclick="switchTab('stats')">Stats</a>
     </div>
   </nav>
 
@@ -635,10 +771,78 @@
         <h3 class="f-title">Multi-Session</h3>
         <p class="f-text">Connect multiple numbers and manage them from a single dashboard.</p>
       </div>
+      <div class="feature-card">
+        <div class="f-icon"><i class="fas fa-plug"></i></div>
+        <h3 class="f-title">Easy Pairing</h3>
+        <p class="f-text">Simple one-click pairing process with instant connection.</p>
+      </div>
+      <div class="feature-card">
+        <div class="f-icon"><i class="fas fa-sync"></i></div>
+        <h3 class="f-title">No Database</h3>
+        <p class="f-text">Lightweight setup without external databases. Simple and efficient.</p>
+      </div>
     </div>
   </section>
 
-  <!-- PAIRING SECTION (Original Functionality Wrapped) -->
+  <!-- STATS SECTION -->
+  <section id="stats" class="hidden">
+    <div class="pairing-container">
+      <div class="pairing-card">
+        <div class="avatar-container">
+          <img src="https://i.postimg.cc/tg7spkqh/bot-img.png" alt="Bot" class="avatar-img">
+        </div>
+  
+        <div class="header-text">
+          <h2>Bot Statistics</h2>
+          <h6>REAL-TIME MONITORING</h6>
+        </div>
+  
+        <div class="stats-container" id="statsContainer">
+          <div class="stat-card">
+            <div class="stat-number" id="activeSessions">0</div>
+            <div class="stat-label">Active Sessions</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number" id="uptimeSec">0s</div>
+            <div class="stat-label">Uptime</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number" id="memoryUsage">0 MB</div>
+            <div class="stat-label">Memory</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number" id="pairingAttempts">0</div>
+            <div class="stat-label">Pairings</div>
+          </div>
+        </div>
+  
+        <div id="activeSessionsList" style="margin-top: 20px; text-align: left; display: none;">
+          <h4 style="margin-bottom: 10px; color: var(--primary);">Active Sessions:</h4>
+          <div id="sessionsList" style="max-height: 200px; overflow-y: auto; font-size: 12px;"></div>
+        </div>
+  
+        <div class="action-row" style="margin-top: 20px;">
+          <button onclick="refreshStats()" class="btn btn-secondary">
+            <i class="fas fa-sync-alt"></i> Refresh
+          </button>
+          <button onclick="switchTab('pair')" class="btn btn-secondary">
+            <i class="fas fa-link"></i> Pair New
+          </button>
+        </div>
+  
+        <div class="info-bar">
+          <div class="info-item">
+            <i class="fas fa-server"></i> <span id="serverTime">00:00:00</span>
+          </div>
+          <div class="info-item">
+            <span class="status-dot"></span> <span id="serverStatus">Online</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PAIRING SECTION -->
   <section id="pair" class="hidden">
     <div class="pairing-container">
       <div class="pairing-card">
@@ -655,10 +859,13 @@
   
         <!-- Input Form -->
         <div class="input-group">
-          <label class="input-label"><i class="fas fa-mobile-alt"></i> Phone Number</label>
+          <label class="input-label"><i class="fas fa-mobile-alt"></i> Phone Number (with country code)</label>
           <div class="input-wrapper">
-            <input id="number" type="tel" class="phone-input" placeholder="Example: 2637866XXXXX">
+            <input id="number" type="tel" class="phone-input" placeholder="Example: 263786624966">
           </div>
+          <p style="font-size: 12px; color: var(--text-secondary); margin-top: 5px;">
+            Enter your WhatsApp number without + sign
+          </p>
         </div>
   
         <!-- Submit Button -->
@@ -674,6 +881,9 @@
           <button id="clearBtn" class="btn btn-secondary">
             <i class="fas fa-eraser"></i> Clear
           </button>
+          <button onclick="checkStatus()" class="btn btn-secondary">
+            <i class="fas fa-wifi"></i> Status
+          </button>
         </div>
   
         <!-- Loading / Result Area -->
@@ -684,13 +894,25 @@
   
         <main id="pair-result"></main>
   
+        <!-- Instructions -->
+        <div style="margin-top: 25px; padding: 15px; background: rgba(255,255,255,0.03); border-radius: 10px; font-size: 12px; color: var(--text-secondary);">
+          <h4 style="color: var(--primary); margin-bottom: 8px;"><i class="fas fa-info-circle"></i> How to Pair:</h4>
+          <ol style="text-align: left; padding-left: 20px; margin: 0;">
+            <li>Enter your WhatsApp number</li>
+            <li>Click "Generate Pairing Code"</li>
+            <li>Open WhatsApp on your phone</li>
+            <li>Go to Settings → Linked Devices → Link a Device</li>
+            <li>Enter the 6-digit code shown above</li>
+          </ol>
+        </div>
+  
         <!-- Footer Info -->
         <div class="info-bar">
           <div class="info-item">
             <i class="fas fa-clock"></i> <span id="uptime">00:00:00</span>
           </div>
           <div class="info-item">
-            <span class="status-dot"></span> Online
+            <span class="status-dot"></span> <span id="connectionStatus">Ready</span>
           </div>
         </div>
   
@@ -705,6 +927,7 @@
       document.getElementById('home').classList.add('hidden');
       document.getElementById('features').classList.add('hidden');
       document.getElementById('pair').classList.add('hidden');
+      document.getElementById('stats').classList.add('hidden');
 
       // Show selected section
       document.getElementById(tabId).classList.remove('hidden');
@@ -713,15 +936,26 @@
       const navItems = document.querySelectorAll('.nav-item');
       navItems.forEach(item => item.classList.remove('active'));
       
-      // Highlight current nav item (simple match based on index/text logic)
-      if(tabId === 'home') navItems[0].classList.add('active');
-      if(tabId === 'features') navItems[1].classList.add('active');
-      if(tabId === 'pair') navItems[2].classList.add('active');
+      // Highlight current nav item
+      navItems.forEach(item => {
+        if (item.textContent.toLowerCase().includes(tabId.toLowerCase()) || 
+            (tabId === 'home' && item.textContent.includes('Home')) ||
+            (tabId === 'features' && item.textContent.includes('Features')) ||
+            (tabId === 'pair' && item.textContent.includes('Pair')) ||
+            (tabId === 'stats' && item.textContent.includes('Stats'))) {
+          item.classList.add('active');
+        }
+      });
+
+      // Refresh stats if switching to stats tab
+      if (tabId === 'stats') {
+        refreshStats();
+      }
     }
 
     // --- Background Animation ---
     const bgContainer = document.getElementById("bgAnimation");
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 25; i++) {
       const bubble = document.createElement("div");
       bubble.classList.add("bubble");
       bubble.style.width = `${Math.random() * 100 + 20}px`;
@@ -737,28 +971,40 @@
       const now = new Date();
       const timeStr = now.toLocaleTimeString('en-US', { hour12: false });
       document.getElementById("uptime").textContent = timeStr;
+      document.getElementById("serverTime").textContent = timeStr;
     }
     setInterval(updateTime, 1000);
     updateTime();
 
     // --- Notification Logic ---
-    function showToast(msg, type = 'success') {
+    function showToast(msg, type = 'success', duration = 3000) {
       const notif = document.getElementById("notification");
       const txt = document.getElementById("notifText");
       txt.innerText = msg;
       
-      if(type === 'error') {
-        notif.style.borderLeftColor = 'var(--error)';
+      // Reset classes
+      notif.className = 'notification';
+      
+      // Set type-specific styling
+      if (type === 'error') {
+        notif.classList.add('error');
         notif.querySelector('i').className = 'fas fa-exclamation-circle';
         notif.querySelector('i').style.color = 'var(--error)';
+      } else if (type === 'warning') {
+        notif.classList.add('warning');
+        notif.querySelector('i').className = 'fas fa-exclamation-triangle';
+        notif.querySelector('i').style.color = 'var(--warning)';
+      } else if (type === 'info') {
+        notif.classList.add('info');
+        notif.querySelector('i').className = 'fas fa-info-circle';
+        notif.querySelector('i').style.color = 'var(--accent)';
       } else {
-        notif.style.borderLeftColor = 'var(--primary)';
         notif.querySelector('i').className = 'fas fa-check-circle';
         notif.querySelector('i').style.color = 'var(--primary)';
       }
 
       notif.classList.add("show");
-      setTimeout(() => notif.classList.remove("show"), 3000);
+      setTimeout(() => notif.classList.remove("show"), duration);
     }
 
     // --- Copy Logic ---
@@ -766,18 +1012,158 @@
       const codeDiv = document.getElementById("copy");
       if(codeDiv) {
         const text = codeDiv.innerText.replace('CODE: ', '').trim();
-        await navigator.clipboard.writeText(text);
-        showToast("Code copied to clipboard!");
-        
-        const originalText = codeDiv.innerHTML;
-        codeDiv.innerText = "COPIED!";
-        setTimeout(() => {
-          codeDiv.innerHTML = originalText;
-        }, 1500);
+        try {
+          await navigator.clipboard.writeText(text);
+          showToast("Code copied to clipboard!");
+          
+          const originalText = codeDiv.innerHTML;
+          codeDiv.innerText = "COPIED!";
+          codeDiv.style.color = 'var(--primary)';
+          setTimeout(() => {
+            codeDiv.innerHTML = originalText;
+            codeDiv.style.color = '';
+          }, 1500);
+        } catch (err) {
+          showToast("Failed to copy", "error");
+        }
       }
     }
 
-    // --- Pairing Functionality (Original Logic) ---
+    // --- Server Status Check ---
+    async function checkServerStatus() {
+      try {
+        const response = await fetch('/code/health');
+        const data = await response.json();
+        document.getElementById('serverStatus').textContent = 'Online';
+        document.getElementById('connectionStatus').textContent = 'Online';
+        return data;
+      } catch (error) {
+        document.getElementById('serverStatus').textContent = 'Offline';
+        document.getElementById('connectionStatus').textContent = 'Offline';
+        console.error('Server status check failed:', error);
+        return null;
+      }
+    }
+
+    // --- Stats Refresh ---
+    async function refreshStats() {
+      try {
+        const status = await checkServerStatus();
+        if (status) {
+          document.getElementById('memoryUsage').textContent = 
+            Math.round(status.memoryUsage.heapUsed / 1024 / 1024) + ' MB';
+          document.getElementById('uptimeSec').textContent = 
+            Math.round(status.uptime) + 's';
+        }
+        
+        // Get active sessions
+        const response = await fetch('/code/active');
+        const data = await response.json();
+        
+        document.getElementById('activeSessions').textContent = data.count;
+        document.getElementById('pairingAttempts').textContent = data.activeSessions?.length || 0;
+        
+        // Update sessions list
+        const sessionsList = document.getElementById('sessionsList');
+        const sessionsContainer = document.getElementById('activeSessionsList');
+        
+        if (data.activeSessions && data.activeSessions.length > 0) {
+          sessionsContainer.style.display = 'block';
+          sessionsList.innerHTML = data.activeSessions.map(session => `
+            <div style="padding: 8px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+              <div style="color: var(--primary); font-weight: 500;">${session.number}</div>
+              <div style="font-size: 10px; color: var(--text-secondary);">Connected: ${new Date(session.connectedSince).toLocaleTimeString()}</div>
+              <div style="font-size: 10px; color: var(--text-secondary);">Uptime: ${session.uptime}</div>
+            </div>
+          `).join('');
+        } else {
+          sessionsContainer.style.display = 'none';
+          sessionsList.innerHTML = '<div style="padding: 10px; text-align: center; color: var(--text-secondary);">No active sessions</div>';
+        }
+        
+        showToast('Stats refreshed', 'info', 1500);
+      } catch (error) {
+        console.error('Failed to refresh stats:', error);
+        showToast('Failed to refresh stats', 'error');
+      }
+    }
+
+    // --- Check Number Status ---
+    async function checkStatus() {
+      const inputField = document.getElementById("number");
+      const cleanNumber = inputField.value.replace(/[^0-9]/g, "");
+      
+      if (!cleanNumber || cleanNumber.length < 10) {
+        showToast("Enter a valid number first", "error");
+        return;
+      }
+      
+      try {
+        const response = await fetch(`/code/status/${cleanNumber}`);
+        const data = await response.json();
+        
+        const resultArea = document.getElementById("pair-result");
+        if (data.connected) {
+          resultArea.innerHTML = `
+            <div class="success-box">
+              <i class="fas fa-check-circle" style="font-size: 24px; margin-bottom: 10px; display: block;"></i>
+              <h4 style="margin-bottom: 10px;">Already Connected!</h4>
+              <p>This number is already connected to the bot.</p>
+              <p style="font-size: 12px; margin-top: 10px;">
+                Connected since: ${new Date(data.connectedSince).toLocaleString()}
+              </p>
+              <button onclick="forceReconnect('${cleanNumber}')" class="btn btn-secondary" style="margin-top: 10px;">
+                <i class="fas fa-sync"></i> Force Reconnect
+              </button>
+            </div>
+          `;
+        } else {
+          resultArea.innerHTML = `
+            <div class="info-box">
+              <i class="fas fa-info-circle" style="font-size: 24px; margin-bottom: 10px; display: block;"></i>
+              <h4 style="margin-bottom: 10px;">Not Connected</h4>
+              <p>This number is not currently connected.</p>
+              <p style="font-size: 12px; margin-top: 10px;">
+                Pairing attempts: ${data.pairingAttempts || 0}
+              </p>
+            </div>
+          `;
+        }
+      } catch (error) {
+        console.error('Status check error:', error);
+        showToast('Failed to check status', 'error');
+      }
+    }
+
+    // --- Force Reconnect ---
+    async function forceReconnect(number) {
+      if (!confirm('This will disconnect the current session and allow new pairing. Continue?')) {
+        return;
+      }
+      
+      try {
+        const response = await fetch(`/code/disconnect/${number}`);
+        const data = await response.json();
+        
+        if (data.status === 'success') {
+          showToast('Disconnected successfully. You can now pair again.', 'success');
+          document.getElementById('pair-result').innerHTML = `
+            <div class="success-box">
+              <i class="fas fa-check-circle" style="font-size: 24px; margin-bottom: 10px; display: block;"></i>
+              <h4 style="margin-bottom: 10px;">Disconnected!</h4>
+              <p>The number has been disconnected. You can now generate a new pairing code.</p>
+            </div>
+          `;
+        } else {
+          showToast('Failed to disconnect', 'error');
+        }
+      } catch (error) {
+        console.error('Force reconnect error:', error);
+        showToast('Failed to disconnect', 'error');
+      }
+    }
+
+    // --- Pairing Functionality ---
     const resultArea = document.getElementById("pair-result");
     const submitBtn = document.getElementById("submit");
     const inputField = document.getElementById("number");
@@ -807,15 +1193,49 @@
         let response = await fetch(`/code?number=${cleanNumber}`);
         let data = await response.json();
 
-        if (data.code && data.code !== "Service Unavailable") {
+        if (data.code) {
           resultArea.innerHTML = `
-            <div id="copy" class="code-display" onclick="Copy()">CODE: ${data.code}</div>
+            <div class="success-box">
+              <i class="fas fa-check-circle" style="font-size: 24px; margin-bottom: 10px; display: block;"></i>
+              <h4 style="margin-bottom: 10px;">Pairing Code Generated!</h4>
+              <div id="copy" class="code-display" onclick="Copy()">CODE: ${data.code}</div>
+              <p style="font-size: 12px; margin-top: 10px; color: var(--text-secondary);">
+                Enter this code in WhatsApp > Linked Devices > Link a Device
+              </p>
+              <div style="margin-top: 15px; padding: 10px; background: rgba(0,0,0,0.3); border-radius: 8px; font-size: 11px;">
+                <strong>Note:</strong> The code expires in 2 minutes. If it doesn't work, generate a new one.
+              </div>
+            </div>
           `;
           showToast("Pairing Code Generated!");
+        } else if (data.status === 'already_connected') {
+          resultArea.innerHTML = `
+            <div class="info-box">
+              <i class="fas fa-info-circle" style="font-size: 24px; margin-bottom: 10px; display: block;"></i>
+              <h4 style="margin-bottom: 10px;">Already Connected!</h4>
+              <p>This number is already connected to the bot.</p>
+              <p style="font-size: 12px; margin-top: 10px; color: var(--text-secondary);">
+                If you want to reconnect, wait a moment and try again or use the Status button.
+              </p>
+            </div>
+          `;
+          showToast("Number already connected", "info");
+        } else if (data.status === 'processing') {
+          resultArea.innerHTML = `
+            <div class="warning-box">
+              <i class="fas fa-sync fa-spin" style="font-size: 24px; margin-bottom: 10px; display: block;"></i>
+              <h4 style="margin-bottom: 10px;">Processing...</h4>
+              <p>Please check your WhatsApp for pairing request.</p>
+              <p style="font-size: 12px; margin-top: 10px; color: var(--text-secondary);">
+                This may take a few moments. If you don't see the request, try again.
+              </p>
+            </div>
+          `;
+          showToast("Processing request...", "info");
         } else {
           resultArea.innerHTML = `
             <div class="error-box">
-              <i class="fas fa-exclamation-triangle"></i> ${data.error || "Service Unavailable"}
+              <i class="fas fa-exclamation-triangle"></i> ${data.error || data.message || "Service Unavailable"}
             </div>
           `;
           showToast("Failed to generate code", "error");
@@ -823,9 +1243,11 @@
       } catch (error) {
         resultArea.innerHTML = `
           <div class="error-box">
-            <i class="fas fa-wifi"></i> Network Error. Try again.
+            <i class="fas fa-wifi"></i> Network Error. Check your connection and try again.
           </div>
         `;
+        showToast("Network error", "error");
+        console.error('Pairing error:', error);
       } finally {
         waitingArea.style.display = "none";
         submitBtn.disabled = false;
@@ -833,18 +1255,41 @@
       }
     });
 
+    // Clear button
     document.getElementById("clearBtn").addEventListener("click", () => {
       inputField.value = "";
       resultArea.innerHTML = "";
       showToast("Cleared");
     });
 
+    // Join channel button
     document.getElementById("joinBtn").addEventListener("click", () => {
       window.open("https://whatsapp.com/channel/0029VbCGIzTJkK7C0wtGy31s", "_blank");
     });
 
+    // Enter key support
     inputField.addEventListener("keydown", (e) => {
       if (e.key === "Enter") submitBtn.click();
+    });
+
+    // Auto-focus on pair tab input
+    document.addEventListener('DOMContentLoaded', function() {
+      // Check URL for tab parameter
+      const urlParams = new URLSearchParams(window.location.search);
+      const tab = urlParams.get('tab');
+      if (tab) {
+        switchTab(tab);
+      }
+      
+      // Initial server check
+      checkServerStatus();
+      
+      // Auto-refresh stats every 30 seconds if on stats tab
+      setInterval(() => {
+        if (!document.getElementById('stats').classList.contains('hidden')) {
+          refreshStats();
+        }
+      }, 30000);
     });
 
   </script>
