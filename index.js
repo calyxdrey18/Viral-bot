@@ -5,12 +5,7 @@ const bodyParser = require("body-parser");
 const PORT = process.env.PORT || 8000;
 let code = require('./pair'); 
 
-require('events').EventEmitter.defaultMaxListeners = 500;
-
 app.use('/code', code);
-app.use('/pair', async (req, res, next) => {
-    res.sendFile(__path + '/pair.html')
-});
 app.use('/', async (req, res, next) => {
     res.sendFile(__path + '/main.html')
 });
@@ -20,10 +15,26 @@ app.use(bodyParser.urlencoded({ extended: true }));
 
 app.listen(PORT, () => {
     console.log(`
-Don't Forget To Give Star ‼️
+╔══════════════════════════════════════════════════════════════╗
+║                                                              ║
+║         VIRAL-BOT-MINI - WhatsApp Bot Server                 ║
+║         Powered by Calyx Studio                              ║
+║         Developer: Wesley                                    ║
+║                                                              ║
+╚══════════════════════════════════════════════════════════════╝
 
+🚀 Server running on http://localhost:${PORT}
+📞 Pairing endpoint: /code?number=YOUR_NUMBER
+🔗 Example: http://localhost:${PORT}/code?number=263786624966
 
-Server running on http://localhost:` + PORT)
+✅ Features:
+   • Real WhatsApp pairing codes
+   • Multi-session support
+   • No database required
+   • Command system with .menu
+   • Group management
+
+`)
 });
 
 module.exports = app;

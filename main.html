@@ -3,16 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Viral-Bot Mini | WhatsApp Automation</title>
+  <title>Viral-Bot Mini | WhatsApp Pairing</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"/>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    /* --- ORIGINAL CSS (Kept Intact) --- */
     * { 
       margin: 0; 
       padding: 0; 
       box-sizing: border-box; 
-      scroll-behavior: smooth;
     }
     
     :root {
@@ -30,7 +28,6 @@
       --success: #25D366;
       --error: #ff4444;
       --warning: #ffc107;
-      --glass: rgba(255, 255, 255, 0.05);
     }
     
     body {
@@ -38,8 +35,12 @@
       background: linear-gradient(135deg, var(--darker) 0%, var(--dark) 100%);
       color: var(--text);
       min-height: 100vh;
-      overflow-x: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
       position: relative;
+      overflow: hidden;
     }
 
     /* Background Animation */
@@ -67,231 +68,7 @@
       100% { transform: translateY(-100px) scale(1.2); opacity: 0; }
     }
 
-    /* Navbar */
-    .navbar {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      padding: 20px 40px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      z-index: 1000;
-      backdrop-filter: blur(10px);
-      background: rgba(7, 17, 13, 0.85);
-      border-bottom: 1px solid rgba(37, 211, 102, 0.1);
-    }
-
-    .logo {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      text-decoration: none;
-    }
-
-    .logo-icon {
-      width: 40px;
-      height: 40px;
-      background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-      border-radius: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 20px;
-      box-shadow: 0 5px 15px rgba(37, 211, 102, 0.3);
-      color: white;
-    }
-
-    .logo-text {
-      font-family: 'Montserrat', sans-serif;
-      font-size: 24px;
-      font-weight: 700;
-      color: var(--text);
-    }
-
-    .logo-text span {
-      color: var(--primary);
-    }
-
-    /* New Nav Menu */
-    .nav-menu {
-      display: flex;
-      gap: 30px;
-    }
-
-    .nav-item {
-      color: var(--text-secondary);
-      text-decoration: none;
-      font-weight: 500;
-      font-size: 14px;
-      transition: color 0.3s;
-      cursor: pointer;
-    }
-
-    .nav-item:hover, .nav-item.active {
-      color: var(--primary);
-    }
-
-    /* Sections General */
-    section {
-      padding: 100px 20px 40px;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      width: 100%;
-    }
-
-    /* --- HERO SECTION (New) --- */
-    #home {
-      text-align: center;
-      padding-top: 140px;
-    }
-
-    .hero-content {
-      max-width: 800px;
-      margin: 0 auto;
-      z-index: 2;
-    }
-
-    .hero-badge {
-      display: inline-block;
-      padding: 8px 16px;
-      background: rgba(37, 211, 102, 0.1);
-      border: 1px solid var(--border);
-      border-radius: 50px;
-      color: var(--primary);
-      font-size: 12px;
-      font-weight: 600;
-      margin-bottom: 20px;
-      letter-spacing: 1px;
-    }
-
-    .hero-title {
-      font-family: 'Montserrat', sans-serif;
-      font-size: 48px;
-      font-weight: 800;
-      line-height: 1.2;
-      margin-bottom: 20px;
-      background: linear-gradient(to right, #fff, #b0e8d0);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }
-
-    .hero-title span {
-      background: linear-gradient(to right, var(--primary), var(--accent));
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }
-
-    .hero-desc {
-      font-size: 16px;
-      color: var(--text-secondary);
-      margin-bottom: 40px;
-      line-height: 1.6;
-    }
-
-    .hero-img-container {
-      width: 200px;
-      height: 200px;
-      margin: 0 auto 40px;
-      position: relative;
-    }
-
-    .hero-img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      border-radius: 50%;
-      border: 4px solid var(--border);
-      box-shadow: 0 0 50px rgba(37, 211, 102, 0.3);
-      animation: float 6s ease-in-out infinite;
-    }
-
-    @keyframes float {
-      0% { transform: translateY(0px); }
-      50% { transform: translateY(-20px); }
-      100% { transform: translateY(0px); }
-    }
-
-    .cta-btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 10px;
-      padding: 16px 40px;
-      background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-      color: white;
-      border-radius: 50px;
-      font-weight: 600;
-      font-size: 16px;
-      text-decoration: none;
-      box-shadow: 0 10px 30px rgba(37, 211, 102, 0.3);
-      transition: all 0.3s ease;
-      border: none;
-      cursor: pointer;
-    }
-
-    .cta-btn:hover {
-      transform: translateY(-5px);
-      box-shadow: 0 15px 40px rgba(37, 211, 102, 0.4);
-    }
-
-    /* --- FEATURES SECTION (New) --- */
-    #features {
-      background: rgba(0,0,0,0.2);
-    }
-
-    .features-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 30px;
-      max-width: 1200px;
-      width: 100%;
-      padding: 20px;
-    }
-
-    .feature-card {
-      background: var(--card-bg);
-      padding: 30px;
-      border-radius: 20px;
-      border: 1px solid var(--border);
-      transition: all 0.3s ease;
-    }
-
-    .feature-card:hover {
-      transform: translateY(-10px);
-      border-color: var(--primary);
-    }
-
-    .f-icon {
-      width: 50px;
-      height: 50px;
-      background: rgba(37, 211, 102, 0.1);
-      border-radius: 12px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: var(--primary);
-      font-size: 24px;
-      margin-bottom: 20px;
-    }
-
-    .f-title {
-      font-size: 20px;
-      font-weight: 700;
-      margin-bottom: 10px;
-      font-family: 'Montserrat', sans-serif;
-    }
-
-    .f-text {
-      font-size: 14px;
-      color: var(--text-secondary);
-      line-height: 1.6;
-    }
-
-    /* --- PAIRING SECTION (Original Logic Wrapped) --- */
+    /* Main Container */
     .pairing-container {
       width: 100%;
       max-width: 480px;
@@ -422,12 +199,20 @@
       box-shadow: 0 12px 25px rgba(37, 211, 102, 0.3);
     }
 
+    .btn-primary:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
+      transform: none !important;
+    }
+
     .action-row {
       display: flex;
       gap: 10px;
+      margin-bottom: 20px;
     }
 
     .btn-secondary {
+      flex: 1;
       background: rgba(255, 255, 255, 0.05);
       color: var(--text-secondary);
       border: 1px solid rgba(255, 255, 255, 0.1);
@@ -525,16 +310,6 @@
       text-align: center;
     }
 
-    .warning-box {
-      background: rgba(255, 193, 7, 0.1);
-      border: 1px solid rgba(255, 193, 7, 0.3);
-      color: #ffc107;
-      padding: 20px;
-      border-radius: 12px;
-      margin-top: 20px;
-      text-align: center;
-    }
-
     .info-bar {
       margin-top: 30px;
       padding-top: 20px;
@@ -562,7 +337,7 @@
 
     .notification {
       position: fixed;
-      top: 90px;
+      top: 20px;
       right: 20px;
       background: var(--card-bg);
       backdrop-filter: blur(10px);
@@ -595,64 +370,39 @@
       border-left-color: var(--accent);
     }
 
-    /* Stats Container */
-    .stats-container {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-      gap: 15px;
-      margin: 20px 0;
-    }
-
-    .stat-card {
-      background: rgba(255, 255, 255, 0.05);
-      border-radius: 10px;
-      padding: 15px;
-      text-align: center;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-    }
-
-    .stat-number {
-      font-size: 24px;
-      font-weight: 700;
-      color: var(--primary);
-      margin-bottom: 5px;
-    }
-
-    .stat-label {
-      font-size: 12px;
-      color: var(--text-secondary);
-      text-transform: uppercase;
-      letter-spacing: 1px;
-    }
-
     @keyframes spin { to { transform: rotate(360deg); } }
     @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
 
-    /* Utility to hide/show sections */
-    .hidden { display: none !important; }
+    /* Instructions */
+    .instructions {
+      margin-top: 25px;
+      padding: 15px;
+      background: rgba(255,255,255,0.03);
+      border-radius: 10px;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .instructions h4 {
+      color: var(--primary);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .instructions ol {
+      text-align: left;
+      padding-left: 20px;
+      margin: 0;
+    }
+
+    .instructions li {
+      margin-bottom: 5px;
+    }
 
     /* Responsive */
     @media (max-width: 768px) {
-      .navbar {
-        padding: 15px 20px;
-      }
-      
-      .logo-text {
-        font-size: 20px;
-      }
-      
-      .nav-menu {
-        gap: 15px;
-      }
-      
-      .hero-title {
-        font-size: 32px;
-      }
-      
-      .hero-desc {
-        font-size: 14px;
-      }
-      
       .pairing-card {
         padding: 30px 20px;
       }
@@ -662,35 +412,32 @@
         width: 80px;
         height: 80px;
       }
+      
+      .header-text h2 {
+        font-size: 24px;
+      }
+      
+      .code-display {
+        font-size: 24px;
+        padding: 15px;
+      }
     }
 
     @media (max-width: 480px) {
-      .navbar {
-        flex-direction: column;
-        gap: 15px;
-        padding: 15px;
+      body {
+        padding: 10px;
       }
       
-      .nav-menu {
-        gap: 10px;
-        font-size: 12px;
-      }
-      
-      .hero-title {
-        font-size: 28px;
-      }
-      
-      .hero-img-container {
-        width: 150px;
-        height: 150px;
-      }
-      
-      .features-grid {
-        grid-template-columns: 1fr;
+      .pairing-card {
+        padding: 25px 15px;
       }
       
       .action-row {
         flex-direction: column;
+      }
+      
+      .btn-secondary {
+        width: 100%;
       }
       
       .notification {
@@ -706,275 +453,101 @@
   <!-- Animation Background -->
   <div class="background-animation" id="bgAnimation"></div>
 
-  <!-- Navbar -->
-  <nav class="navbar">
-    <a href="#" class="logo">
-      <div class="logo-icon"><i class="fab fa-whatsapp"></i></div>
-      <div class="logo-text">Viral-<span>Bot Mini</span></div>
-    </a>
-    <div class="nav-menu">
-      <a class="nav-item active" onclick="switchTab('home')">Home</a>
-      <a class="nav-item" onclick="switchTab('features')">Features</a>
-      <a class="nav-item" onclick="switchTab('pair')">Pair</a>
-      <a class="nav-item" onclick="switchTab('stats')">Stats</a>
-    </div>
-  </nav>
-
   <!-- Notification Toast -->
   <div class="notification" id="notification">
     <i class="fas fa-check-circle" style="color: var(--primary)"></i>
     <span id="notifText">Message</span>
   </div>
 
-  <!-- HOME SECTION -->
-  <section id="home">
-    <div class="hero-content">
-      <div class="hero-img-container">
-        <img src="https://i.postimg.cc/tg7spkqh/bot-img.png" class="hero-img" alt="Bot">
-      </div>
-      <div class="hero-badge">🚀 POWERED BY CALYX STUDIO</div>
-      <h1 class="hero-title">Automate Your <br><span>WhatsApp World</span></h1>
-      <p class="hero-desc">
-        Experience the most powerful lightweight WhatsApp bot. 
-        Auto-reply, group management, and seamless integration 
-        with zero downtime.
-      </p>
-      <button onclick="switchTab('pair')" class="cta-btn">
-        <i class="fas fa-link"></i> Connect Now
-      </button>
-    </div>
-  </section>
-
-  <!-- FEATURES SECTION -->
-  <section id="features" class="hidden">
-    <div class="hero-content" style="margin-bottom: 40px;">
-      <h2 class="hero-title" style="font-size: 36px;">Why Choose <span>Us?</span></h2>
-    </div>
-    <div class="features-grid">
-      <div class="feature-card">
-        <div class="f-icon"><i class="fas fa-robot"></i></div>
-        <h3 class="f-title">Auto Automation</h3>
-        <p class="f-text">Set up auto-replies, welcome messages, and scheduled tasks effortlessly.</p>
-      </div>
-      <div class="feature-card">
-        <div class="f-icon"><i class="fas fa-shield-alt"></i></div>
-        <h3 class="f-title">Secure & Safe</h3>
-        <p class="f-text">End-to-end encryption ensures your data and chats remain private.</p>
-      </div>
-      <div class="feature-card">
-        <div class="f-icon"><i class="fas fa-bolt"></i></div>
-        <h3 class="f-title">Lightning Fast</h3>
-        <p class="f-text">Optimized for speed with minimal latency and high uptime.</p>
-      </div>
-      <div class="feature-card">
-        <div class="f-icon"><i class="fas fa-code-branch"></i></div>
-        <h3 class="f-title">Multi-Session</h3>
-        <p class="f-text">Connect multiple numbers and manage them from a single dashboard.</p>
-      </div>
-      <div class="feature-card">
-        <div class="f-icon"><i class="fas fa-plug"></i></div>
-        <h3 class="f-title">Easy Pairing</h3>
-        <p class="f-text">Simple one-click pairing process with instant connection.</p>
-      </div>
-      <div class="feature-card">
-        <div class="f-icon"><i class="fas fa-sync"></i></div>
-        <h3 class="f-title">No Database</h3>
-        <p class="f-text">Lightweight setup without external databases. Simple and efficient.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- STATS SECTION -->
-  <section id="stats" class="hidden">
-    <div class="pairing-container">
-      <div class="pairing-card">
-        <div class="avatar-container">
-          <img src="https://i.postimg.cc/tg7spkqh/bot-img.png" alt="Bot" class="avatar-img">
-        </div>
-  
-        <div class="header-text">
-          <h2>Bot Statistics</h2>
-          <h6>REAL-TIME MONITORING</h6>
-        </div>
-  
-        <div class="stats-container" id="statsContainer">
-          <div class="stat-card">
-            <div class="stat-number" id="activeSessions">0</div>
-            <div class="stat-label">Active Sessions</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-number" id="uptimeSec">0s</div>
-            <div class="stat-label">Uptime</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-number" id="memoryUsage">0 MB</div>
-            <div class="stat-label">Memory</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-number" id="pairingAttempts">0</div>
-            <div class="stat-label">Pairings</div>
-          </div>
-        </div>
-  
-        <div id="activeSessionsList" style="margin-top: 20px; text-align: left; display: none;">
-          <h4 style="margin-bottom: 10px; color: var(--primary);">Active Sessions:</h4>
-          <div id="sessionsList" style="max-height: 200px; overflow-y: auto; font-size: 12px;"></div>
-        </div>
-  
-        <div class="action-row" style="margin-top: 20px;">
-          <button onclick="refreshStats()" class="btn btn-secondary">
-            <i class="fas fa-sync-alt"></i> Refresh
-          </button>
-          <button onclick="switchTab('pair')" class="btn btn-secondary">
-            <i class="fas fa-link"></i> Pair New
-          </button>
-        </div>
-  
-        <div class="info-bar">
-          <div class="info-item">
-            <i class="fas fa-server"></i> <span id="serverTime">00:00:00</span>
-          </div>
-          <div class="info-item">
-            <span class="status-dot"></span> <span id="serverStatus">Online</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
   <!-- PAIRING SECTION -->
-  <section id="pair" class="hidden">
-    <div class="pairing-container">
-      <div class="pairing-card">
-        
-        <!-- Floating Avatar -->
-        <div class="avatar-container">
-          <img src="https://i.postimg.cc/tg7spkqh/bot-img.png" alt="Bot" class="avatar-img">
-        </div>
-  
-        <div class="header-text">
-          <h2>Pair Device</h2>
-          <h6>POWERED BY CALYX STUDIO</h6>
-        </div>
-  
-        <!-- Input Form -->
-        <div class="input-group">
-          <label class="input-label"><i class="fas fa-mobile-alt"></i> Phone Number (with country code)</label>
-          <div class="input-wrapper">
-            <input id="number" type="tel" class="phone-input" placeholder="Example: 263786624966">
-          </div>
-          <p style="font-size: 12px; color: var(--text-secondary); margin-top: 5px;">
-            Enter your WhatsApp number without + sign
-          </p>
-        </div>
-  
-        <!-- Submit Button -->
-        <button id="submit" class="btn btn-primary">
-          <i class="fas fa-qrcode"></i> Generate Pairing Code
-        </button>
-  
-        <!-- Action Buttons -->
-        <div class="action-row">
-          <button id="joinBtn" class="btn btn-secondary">
-            <i class="fab fa-whatsapp"></i> Channel
-          </button>
-          <button id="clearBtn" class="btn btn-secondary">
-            <i class="fas fa-eraser"></i> Clear
-          </button>
-          <button onclick="checkStatus()" class="btn btn-secondary">
-            <i class="fas fa-wifi"></i> Status
-          </button>
-        </div>
-  
-        <!-- Loading / Result Area -->
-        <div id="waiting-message" style="display: none;">
-          <div class="loading-spinner"></div>
-          <div class="status-msg">Connecting to server...</div>
-        </div>
-  
-        <main id="pair-result"></main>
-  
-        <!-- Instructions -->
-        <div style="margin-top: 25px; padding: 15px; background: rgba(255,255,255,0.03); border-radius: 10px; font-size: 12px; color: var(--text-secondary);">
-          <h4 style="color: var(--primary); margin-bottom: 8px;"><i class="fas fa-info-circle"></i> How to Pair:</h4>
-          <ol style="text-align: left; padding-left: 20px; margin: 0;">
-            <li>Enter your WhatsApp number</li>
-            <li>Click "Generate Pairing Code"</li>
-            <li>Open WhatsApp on your phone</li>
-            <li>Go to Settings → Linked Devices → Link a Device</li>
-            <li>Enter the 6-digit code shown above</li>
-          </ol>
-        </div>
-  
-        <!-- Footer Info -->
-        <div class="info-bar">
-          <div class="info-item">
-            <i class="fas fa-clock"></i> <span id="uptime">00:00:00</span>
-          </div>
-          <div class="info-item">
-            <span class="status-dot"></span> <span id="connectionStatus">Ready</span>
-          </div>
-        </div>
-  
+  <div class="pairing-container">
+    <div class="pairing-card">
+      
+      <!-- Floating Avatar -->
+      <div class="avatar-container">
+        <img src="https://i.postimg.cc/tg7spkqh/bot-img.png" alt="Bot" class="avatar-img">
       </div>
+
+      <div class="header-text">
+        <h2>Pair Device</h2>
+        <h6>VIRAL-BOT-MINI | CALYX STUDIO</h6>
+      </div>
+
+      <!-- Input Form -->
+      <div class="input-group">
+        <label class="input-label"><i class="fas fa-mobile-alt"></i> WhatsApp Number (with country code)</label>
+        <div class="input-wrapper">
+          <input id="number" type="tel" class="phone-input" placeholder="Example: 263786624966" autocomplete="off">
+        </div>
+        <p style="font-size: 12px; color: var(--text-secondary); margin-top: 5px;">
+          Enter your WhatsApp number without + sign
+        </p>
+      </div>
+
+      <!-- Submit Button -->
+      <button id="submit" class="btn btn-primary">
+        <i class="fas fa-qrcode"></i> Generate Pairing Code
+      </button>
+
+      <!-- Action Buttons -->
+      <div class="action-row">
+        <button id="checkBtn" class="btn btn-secondary">
+          <i class="fas fa-wifi"></i> Check Status
+        </button>
+        <button id="clearBtn" class="btn btn-secondary">
+          <i class="fas fa-eraser"></i> Clear
+        </button>
+        <button id="helpBtn" class="btn btn-secondary">
+          <i class="fas fa-question-circle"></i> Help
+        </button>
+      </div>
+
+      <!-- Loading / Result Area -->
+      <div id="waiting-message" style="display: none;">
+        <div class="loading-spinner"></div>
+        <div class="status-msg">Connecting to WhatsApp servers...</div>
+      </div>
+
+      <main id="pair-result"></main>
+
+      <!-- Instructions -->
+      <div class="instructions">
+        <h4><i class="fas fa-info-circle"></i> How to Pair:</h4>
+        <ol>
+          <li>Enter your WhatsApp number</li>
+          <li>Click "Generate Pairing Code"</li>
+          <li>Open WhatsApp on your phone</li>
+          <li>Go to Settings → Linked Devices → Link a Device</li>
+          <li>Enter the 6-digit code shown above</li>
+        </ol>
+      </div>
+
+      <!-- Footer Info -->
+      <div class="info-bar">
+        <div class="info-item">
+          <i class="fas fa-server"></i> <span id="serverStatus">Checking...</span>
+        </div>
+        <div class="info-item">
+          <span class="status-dot"></span> <span id="connectionStatus">Ready</span>
+        </div>
+      </div>
+
     </div>
-  </section>
+  </div>
 
   <script>
-    // --- Navigation Logic ---
-    function switchTab(tabId) {
-      // Hide all sections
-      document.getElementById('home').classList.add('hidden');
-      document.getElementById('features').classList.add('hidden');
-      document.getElementById('pair').classList.add('hidden');
-      document.getElementById('stats').classList.add('hidden');
-
-      // Show selected section
-      document.getElementById(tabId).classList.remove('hidden');
-
-      // Update Nav Active State
-      const navItems = document.querySelectorAll('.nav-item');
-      navItems.forEach(item => item.classList.remove('active'));
-      
-      // Highlight current nav item
-      navItems.forEach(item => {
-        if (item.textContent.toLowerCase().includes(tabId.toLowerCase()) || 
-            (tabId === 'home' && item.textContent.includes('Home')) ||
-            (tabId === 'features' && item.textContent.includes('Features')) ||
-            (tabId === 'pair' && item.textContent.includes('Pair')) ||
-            (tabId === 'stats' && item.textContent.includes('Stats'))) {
-          item.classList.add('active');
-        }
-      });
-
-      // Refresh stats if switching to stats tab
-      if (tabId === 'stats') {
-        refreshStats();
-      }
-    }
-
     // --- Background Animation ---
     const bgContainer = document.getElementById("bgAnimation");
-    for (let i = 0; i < 25; i++) {
+    for (let i = 0; i < 20; i++) {
       const bubble = document.createElement("div");
       bubble.classList.add("bubble");
-      bubble.style.width = `${Math.random() * 100 + 20}px`;
+      bubble.style.width = `${Math.random() * 80 + 20}px`;
       bubble.style.height = bubble.style.width;
       bubble.style.left = `${Math.random() * 100}%`;
       bubble.style.animationDuration = `${Math.random() * 10 + 10}s`;
       bubble.style.animationDelay = `${Math.random() * 5}s`;
       bgContainer.appendChild(bubble);
     }
-
-    // --- Clock Logic ---
-    function updateTime() {
-      const now = new Date();
-      const timeStr = now.toLocaleTimeString('en-US', { hour12: false });
-      document.getElementById("uptime").textContent = timeStr;
-      document.getElementById("serverTime").textContent = timeStr;
-    }
-    setInterval(updateTime, 1000);
-    updateTime();
 
     // --- Notification Logic ---
     function showToast(msg, type = 'success', duration = 3000) {
@@ -1008,24 +581,14 @@
     }
 
     // --- Copy Logic ---
-    window.Copy = async function() {
-      const codeDiv = document.getElementById("copy");
-      if(codeDiv) {
-        const text = codeDiv.innerText.replace('CODE: ', '').trim();
-        try {
-          await navigator.clipboard.writeText(text);
-          showToast("Code copied to clipboard!");
-          
-          const originalText = codeDiv.innerHTML;
-          codeDiv.innerText = "COPIED!";
-          codeDiv.style.color = 'var(--primary)';
-          setTimeout(() => {
-            codeDiv.innerHTML = originalText;
-            codeDiv.style.color = '';
-          }, 1500);
-        } catch (err) {
-          showToast("Failed to copy", "error");
-        }
+    async function copyCode(code) {
+      try {
+        await navigator.clipboard.writeText(code);
+        showToast("Code copied to clipboard!");
+        return true;
+      } catch (err) {
+        showToast("Failed to copy", "error");
+        return false;
       }
     }
 
@@ -1033,59 +596,19 @@
     async function checkServerStatus() {
       try {
         const response = await fetch('/code/health');
-        const data = await response.json();
-        document.getElementById('serverStatus').textContent = 'Online';
-        document.getElementById('connectionStatus').textContent = 'Online';
-        return data;
+        if (response.ok) {
+          const data = await response.json();
+          document.getElementById('serverStatus').textContent = 'Online';
+          document.getElementById('connectionStatus').textContent = 'Ready';
+          return true;
+        }
       } catch (error) {
-        document.getElementById('serverStatus').textContent = 'Offline';
-        document.getElementById('connectionStatus').textContent = 'Offline';
         console.error('Server status check failed:', error);
-        return null;
       }
-    }
-
-    // --- Stats Refresh ---
-    async function refreshStats() {
-      try {
-        const status = await checkServerStatus();
-        if (status) {
-          document.getElementById('memoryUsage').textContent = 
-            Math.round(status.memoryUsage.heapUsed / 1024 / 1024) + ' MB';
-          document.getElementById('uptimeSec').textContent = 
-            Math.round(status.uptime) + 's';
-        }
-        
-        // Get active sessions
-        const response = await fetch('/code/active');
-        const data = await response.json();
-        
-        document.getElementById('activeSessions').textContent = data.count;
-        document.getElementById('pairingAttempts').textContent = data.activeSessions?.length || 0;
-        
-        // Update sessions list
-        const sessionsList = document.getElementById('sessionsList');
-        const sessionsContainer = document.getElementById('activeSessionsList');
-        
-        if (data.activeSessions && data.activeSessions.length > 0) {
-          sessionsContainer.style.display = 'block';
-          sessionsList.innerHTML = data.activeSessions.map(session => `
-            <div style="padding: 8px; border-bottom: 1px solid rgba(255,255,255,0.1);">
-              <div style="color: var(--primary); font-weight: 500;">${session.number}</div>
-              <div style="font-size: 10px; color: var(--text-secondary);">Connected: ${new Date(session.connectedSince).toLocaleTimeString()}</div>
-              <div style="font-size: 10px; color: var(--text-secondary);">Uptime: ${session.uptime}</div>
-            </div>
-          `).join('');
-        } else {
-          sessionsContainer.style.display = 'none';
-          sessionsList.innerHTML = '<div style="padding: 10px; text-align: center; color: var(--text-secondary);">No active sessions</div>';
-        }
-        
-        showToast('Stats refreshed', 'info', 1500);
-      } catch (error) {
-        console.error('Failed to refresh stats:', error);
-        showToast('Failed to refresh stats', 'error');
-      }
+      
+      document.getElementById('serverStatus').textContent = 'Offline';
+      document.getElementById('connectionStatus').textContent = 'Offline';
+      return false;
     }
 
     // --- Check Number Status ---
@@ -1110,9 +633,9 @@
               <h4 style="margin-bottom: 10px;">Already Connected!</h4>
               <p>This number is already connected to the bot.</p>
               <p style="font-size: 12px; margin-top: 10px;">
-                Connected since: ${new Date(data.connectedSince).toLocaleString()}
+                Connected since: ${data.connectedSince || 'Unknown'}
               </p>
-              <button onclick="forceReconnect('${cleanNumber}')" class="btn btn-secondary" style="margin-top: 10px;">
+              <button onclick="forceReconnect('${cleanNumber}')" class="btn btn-secondary" style="margin-top: 10px; width: 100%;">
                 <i class="fas fa-sync"></i> Force Reconnect
               </button>
             </div>
@@ -1124,11 +647,12 @@
               <h4 style="margin-bottom: 10px;">Not Connected</h4>
               <p>This number is not currently connected.</p>
               <p style="font-size: 12px; margin-top: 10px;">
-                Pairing attempts: ${data.pairingAttempts || 0}
+                Ready for pairing
               </p>
             </div>
           `;
         }
+        showToast("Status checked", "info");
       } catch (error) {
         console.error('Status check error:', error);
         showToast('Failed to check status', 'error');
@@ -1137,7 +661,7 @@
 
     // --- Force Reconnect ---
     async function forceReconnect(number) {
-      if (!confirm('This will disconnect the current session and allow new pairing. Continue?')) {
+      if (!confirm('This will disconnect the current session. Continue?')) {
         return;
       }
       
@@ -1145,7 +669,7 @@
         const response = await fetch(`/code/disconnect/${number}`);
         const data = await response.json();
         
-        if (data.status === 'success') {
+        if (data.success) {
           showToast('Disconnected successfully. You can now pair again.', 'success');
           document.getElementById('pair-result').innerHTML = `
             <div class="success-box">
@@ -1187,7 +711,7 @@
       resultArea.innerHTML = '';
       waitingArea.style.display = "block";
       submitBtn.disabled = true;
-      submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+      submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating...';
 
       try {
         let response = await fetch(`/code?number=${cleanNumber}`);
@@ -1198,13 +722,13 @@
             <div class="success-box">
               <i class="fas fa-check-circle" style="font-size: 24px; margin-bottom: 10px; display: block;"></i>
               <h4 style="margin-bottom: 10px;">Pairing Code Generated!</h4>
-              <div id="copy" class="code-display" onclick="Copy()">CODE: ${data.code}</div>
+              <div class="code-display" onclick="copyCode('${data.code}')">${data.code}</div>
               <p style="font-size: 12px; margin-top: 10px; color: var(--text-secondary);">
-                Enter this code in WhatsApp > Linked Devices > Link a Device
+                Enter this 6-digit code in WhatsApp > Linked Devices > Link a Device
               </p>
-              <div style="margin-top: 15px; padding: 10px; background: rgba(0,0,0,0.3); border-radius: 8px; font-size: 11px;">
-                <strong>Note:</strong> The code expires in 2 minutes. If it doesn't work, generate a new one.
-              </div>
+              <p style="font-size: 11px; margin-top: 5px; color: var(--text-secondary);">
+                <i class="fas fa-clock"></i> Code expires in 2 minutes
+              </p>
             </div>
           `;
           showToast("Pairing Code Generated!");
@@ -1215,23 +739,14 @@
               <h4 style="margin-bottom: 10px;">Already Connected!</h4>
               <p>This number is already connected to the bot.</p>
               <p style="font-size: 12px; margin-top: 10px; color: var(--text-secondary);">
-                If you want to reconnect, wait a moment and try again or use the Status button.
+                Connected since: ${data.connectedSince || 'Unknown'}
               </p>
+              <button onclick="forceReconnect('${cleanNumber}')" class="btn btn-secondary" style="margin-top: 10px; width: 100%;">
+                <i class="fas fa-sync"></i> Force Reconnect
+              </button>
             </div>
           `;
           showToast("Number already connected", "info");
-        } else if (data.status === 'processing') {
-          resultArea.innerHTML = `
-            <div class="warning-box">
-              <i class="fas fa-sync fa-spin" style="font-size: 24px; margin-bottom: 10px; display: block;"></i>
-              <h4 style="margin-bottom: 10px;">Processing...</h4>
-              <p>Please check your WhatsApp for pairing request.</p>
-              <p style="font-size: 12px; margin-top: 10px; color: var(--text-secondary);">
-                This may take a few moments. If you don't see the request, try again.
-              </p>
-            </div>
-          `;
-          showToast("Processing request...", "info");
         } else {
           resultArea.innerHTML = `
             <div class="error-box">
@@ -1255,16 +770,18 @@
       }
     });
 
-    // Clear button
+    // Button event handlers
     document.getElementById("clearBtn").addEventListener("click", () => {
       inputField.value = "";
       resultArea.innerHTML = "";
+      inputField.focus();
       showToast("Cleared");
     });
 
-    // Join channel button
-    document.getElementById("joinBtn").addEventListener("click", () => {
-      window.open("https://whatsapp.com/channel/0029VbCGIzTJkK7C0wtGy31s", "_blank");
+    document.getElementById("checkBtn").addEventListener("click", checkStatus);
+
+    document.getElementById("helpBtn").addEventListener("click", () => {
+      showToast("Enter your WhatsApp number and click Generate Pairing Code", "info");
     });
 
     // Enter key support
@@ -1272,24 +789,15 @@
       if (e.key === "Enter") submitBtn.click();
     });
 
-    // Auto-focus on pair tab input
+    // Auto-focus on input
     document.addEventListener('DOMContentLoaded', function() {
-      // Check URL for tab parameter
-      const urlParams = new URLSearchParams(window.location.search);
-      const tab = urlParams.get('tab');
-      if (tab) {
-        switchTab(tab);
-      }
+      inputField.focus();
       
       // Initial server check
-      checkServerStatus();
+      setTimeout(checkServerStatus, 1000);
       
-      // Auto-refresh stats every 30 seconds if on stats tab
-      setInterval(() => {
-        if (!document.getElementById('stats').classList.contains('hidden')) {
-          refreshStats();
-        }
-      }, 30000);
+      // Auto-check server status every 30 seconds
+      setInterval(checkServerStatus, 30000);
     });
 
   </script>

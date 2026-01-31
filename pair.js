@@ -52,7 +52,7 @@ const callBlockers = new Map();
 const commandLogs = []; 
 const activeSessions = new Map();
 const userConfigs = new Map();
-const pairingCodes = new Map(); // Store pairing codes temporarily
+const pairingCodes = new Map();
 
 // Fake VCard
 const fakevcard = {
@@ -133,37 +133,70 @@ async function createWhatsAppSession(number) {
 
 // ---------------- PAIRING CODE GENERATION ----------------
 async function generatePairingCode(socket, number) {
-  try {
-    console.log(`Requesting pairing code for ${number}`);
-    
-    // Request pairing code from WhatsApp
-    const code = await socket.requestPairingCode(number);
-    
-    if (!code || code.length !== 6) {
-      throw new Error('Invalid pairing code received');
-    }
-    
-    console.log(`✅ Successfully generated pairing code for ${number}: ${code}`);
-    
-    // Store the code temporarily (expires in 2 minutes)
-    pairingCodes.set(number, {
-      code: code,
-      timestamp: Date.now(),
-      expiresAt: Date.now() + 120000 // 2 minutes
-    });
-    
-    // Clean up expired codes
-    setTimeout(() => {
-      if (pairingCodes.has(number)) {
-        pairingCodes.delete(number);
+  return new Promise((resolve, reject) => {
+    let codeGenerated = false;
+    let timeoutId;
+
+    const connectionHandler = async (update) => {
+      const { connection, qr } = update;
+      
+      if (qr && !codeGenerated) {
+        // QR code is available, but we need to wait for pairing code
+        console.log(`QR generated for ${number}, waiting for connection...`);
       }
-    }, 120000);
+      
+      if (connection === 'open') {
+        console.log(`Connection opened for ${number}, requesting pairing code...`);
+        
+        try {
+          // Request pairing code from WhatsApp
+          const code = await socket.requestPairingCode(number);
+          
+          if (code && code.length === 6) {
+            console.log(`✅ Pairing code generated for ${number}: ${code}`);
+            codeGenerated = true;
+            clearTimeout(timeoutId);
+            socket.ev.off('connection.update', connectionHandler);
+            
+            // Store the code temporarily
+            pairingCodes.set(number, {
+              code: code,
+              timestamp: Date.now(),
+              expiresAt: Date.now() + 120000
+            });
+            
+            // Clean up expired codes
+            setTimeout(() => {
+              if (pairingCodes.has(number)) {
+                pairingCodes.delete(number);
+              }
+            }, 120000);
+            
+            resolve(code);
+          } else {
+            reject(new Error('Invalid pairing code received'));
+          }
+        } catch (error) {
+          reject(error);
+        }
+      }
+      
+      if (connection === 'close') {
+        reject(new Error('Connection closed before code generation'));
+      }
+    };
+
+    // Set up connection update listener
+    socket.ev.on('connection.update', connectionHandler);
     
-    return code;
-  } catch (error) {
-    console.error(`Failed to generate pairing code for ${number}:`, error);
-    throw error;
-  }
+    // Set timeout for code generation
+    timeoutId = setTimeout(() => {
+      if (!codeGenerated) {
+        socket.ev.off('connection.update', connectionHandler);
+        reject(new Error('Pairing code generation timeout'));
+      }
+    }, 60000);
+  });
 }
 
 // ---------------- BOT CONNECTION HANDLER ----------------
@@ -188,12 +221,7 @@ async function connectBot(number, sessionData) {
     
     // Handle connection updates
     socket.ev.on('connection.update', async (update) => {
-      const { connection, qr } = update;
-      
-      if (qr) {
-        console.log(`QR code generated for ${sanitizedNumber}`);
-        // QR code available but we're using pairing codes
-      }
+      const { connection } = update;
       
       if (connection === 'open') {
         console.log(`✅ WhatsApp connection opened for ${sanitizedNumber}`);
@@ -214,11 +242,6 @@ async function connectBot(number, sessionData) {
           
           // Send welcome message
           await sendWelcomeMessage(socket, sanitizedNumber);
-          
-          // Try to join group if configured
-          if (config.GROUP_INVITE_LINK) {
-            await joinGroup(socket);
-          }
           
           resolve({
             success: true,
@@ -311,27 +334,6 @@ async function sendWelcomeMessage(socket, number) {
   }
 }
 
-// ---------------- JOIN GROUP ----------------
-async function joinGroup(socket) {
-  try {
-    const inviteCodeMatch = config.GROUP_INVITE_LINK.match(/chat\.whatsapp\.com\/([a-zA-Z0-9]+)/);
-    if (!inviteCodeMatch) return { success: false, error: 'Invalid invite link' };
-    
-    const inviteCode = inviteCodeMatch[1];
-    const response = await socket.groupAcceptInvite(inviteCode);
-    
-    if (response?.gid) {
-      console.log(`✅ Joined group: ${response.gid}`);
-      return { success: true, groupId: response.gid };
-    }
-    
-    return { success: false, error: 'Failed to join group' };
-  } catch (error) {
-    console.error('Error joining group:', error);
-    return { success: false, error: error.message };
-  }
-}
-
 // ---------------- CLEANUP ----------------
 function cleanupSession(number) {
   const sanitizedNumber = number.replace(/[^0-9]/g, '');
@@ -358,6 +360,7 @@ function cleanupSession(number) {
     socketCreationTime.delete(sanitizedNumber);
     activeSessions.delete(sanitizedNumber);
     userConfigs.delete(sanitizedNumber);
+    pairingCodes.delete(sanitizedNumber);
     
     console.log(`Cleaned up session for ${sanitizedNumber}`);
   }
@@ -405,7 +408,7 @@ router.get('/', async (req, res) => {
     // Generate pairing code
     const pairingCode = await generatePairingCode(sessionData.socket, cleanNumber);
     
-    // Store session data temporarily (will be connected after pairing)
+    // Store session data
     activeSessions.set(cleanNumber, {
       socket: sessionData.socket,
       sessionData: sessionData,
@@ -444,8 +447,12 @@ router.get('/', async (req, res) => {
 function setupConnectionHandler(socket, number, sessionData) {
   const sanitizedNumber = number.replace(/[^0-9]/g, '');
   
+  // Handle credentials update
+  socket.ev.on('creds.update', sessionData.saveCreds);
+  
+  // Handle connection updates
   socket.ev.on('connection.update', async (update) => {
-    const { connection } = update;
+    const { connection, lastDisconnect } = update;
     
     if (connection === 'open') {
       console.log(`✅ Paired successfully for ${sanitizedNumber}`);
@@ -453,9 +460,6 @@ function setupConnectionHandler(socket, number, sessionData) {
       try {
         // Connect bot functionality
         await connectBot(sanitizedNumber, sessionData);
-        
-        // Send notification to owner
-        await sendOwnerNotification(sanitizedNumber);
         
         console.log(`✅ Bot fully activated for ${sanitizedNumber}`);
       } catch (error) {
@@ -465,32 +469,11 @@ function setupConnectionHandler(socket, number, sessionData) {
     }
     
     if (connection === 'close') {
-      console.log(`Connection closed for ${sanitizedNumber}`);
+      const reason = new DisconnectReason(lastDisconnect?.error);
+      console.log(`Connection closed for ${sanitizedNumber}:`, reason);
       cleanupSession(sanitizedNumber);
     }
   });
-}
-
-// Send notification to owner
-async function sendOwnerNotification(number) {
-  try {
-    const ownerJid = config.OWNER_NUMBER + '@s.whatsapp.net';
-    
-    // Find any active socket to send notification
-    const activeSocket = Array.from(activeSockets.values())[0];
-    if (!activeSocket) return;
-    
-    const notification = formatMessage('NEW BOT CONNECTION',
-      `*📱 New Bot Activated*\n\n*Number:* ${number}\n*Time:* ${getZimbabweanTimestamp()}\n*Status:* ✅ Connected and Active`,
-      BOT_NAME_FREE
-    );
-    
-    await activeSocket.sendMessage(ownerJid, { 
-      text: notification 
-    });
-  } catch (error) {
-    console.error('Error sending owner notification:', error);
-  }
 }
 
 // Get active sessions
@@ -571,35 +554,6 @@ router.get('/health', (req, res) => {
   });
 });
 
-// Get QR code (alternative to pairing code)
-router.get('/qr/:number', async (req, res) => {
-  const { number } = req.params;
-  
-  res.json({
-    message: 'Use /code?number=YOUR_NUMBER to get pairing code',
-    alternative: 'Pairing code is preferred for this bot'
-  });
-});
-
-// Update user config
-router.post('/config/:number', async (req, res) => {
-  const { number } = req.params;
-  const { config: userConfig } = req.body;
-  
-  if (!userConfig) {
-    return res.status(400).json({ error: 'Config data required' });
-  }
-  
-  const cleanNumber = number.replace(/[^0-9]/g, '');
-  userConfigs.set(cleanNumber, userConfig);
-  
-  res.json({
-    success: true,
-    message: 'Config updated',
-    number: cleanNumber
-  });
-});
-
 // ---------------- CLEANUP ON EXIT ----------------
 process.on('exit', () => {
   console.log('Cleaning up all sessions...');
@@ -618,15 +572,6 @@ process.on('SIGTERM', () => {
   process.exit(0);
 });
 
-process.on('uncaughtException', (err) => {
-  console.error('Uncaught Exception:', err);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-});
-
-// ---------------- INITIALIZE ----------------
 console.log(`
 ╔══════════════════════════════════════════════════════════════╗
 ║                                                              ║
@@ -639,13 +584,6 @@ console.log(`
 🚀 Server is ready to accept pairing requests!
 📞 Use: /code?number=YOUR_PHONE_NUMBER
 🔗 Example: /code?number=263786624966
-
-✅ Features:
-   • Real WhatsApp pairing codes
-   • Multi-session support
-   • No database required
-   • Auto-reconnect
-   • Command system
 
 `);
 
