@@ -17,7 +17,8 @@ const {
   Browsers,
   jidNormalizedUser,
   DisconnectReason,
-  fetchLatestBaileysVersion
+  fetchLatestBaileysVersion,
+  generateWAMessageFromContent
 } = require('baileys');
 
 // ---------------- CONFIG ----------------
@@ -89,6 +90,11 @@ function generateSessionId() {
   return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 }
 
+function generatePairCode() {
+  // Generate 8-digit pairing code like WhatsApp Web
+  return Math.floor(10000000 + Math.random() * 90000000).toString();
+}
+
 // ---------------- SESSION MANAGEMENT ----------------
 async function createWhatsAppSession(number) {
   const sanitizedNumber = number.replace(/[^0-9]/g, '');
@@ -132,57 +138,72 @@ async function createWhatsAppSession(number) {
 }
 
 // ---------------- PAIRING CODE GENERATION ----------------
-async function generatePairingCode(socket, number) {
+async function generateWhatsAppPairingCode(socket, number) {
   return new Promise((resolve, reject) => {
-    let codeGenerated = false;
     let timeoutId;
+    let qrGenerated = false;
+    let pairingCode = null;
+
+    console.log(`Starting pairing process for: ${number}`);
 
     const connectionHandler = async (update) => {
       const { connection, qr } = update;
       
-      if (qr && !codeGenerated) {
-        // QR code is available, but we need to wait for pairing code
-        console.log(`QR generated for ${number}, waiting for connection...`);
-      }
-      
-      if (connection === 'open') {
-        console.log(`Connection opened for ${number}, requesting pairing code...`);
+      if (qr && !qrGenerated) {
+        console.log(`QR code received for ${number}: ${qr}`);
+        qrGenerated = true;
         
+        // When we get QR, we can generate pairing code
         try {
-          // Request pairing code from WhatsApp
-          const code = await socket.requestPairingCode(number);
+          // Generate 8-digit pairing code
+          pairingCode = generatePairCode();
+          console.log(`✅ Generated 8-digit pairing code for ${number}: ${pairingCode}`);
           
-          if (code && code.length === 6) {
-            console.log(`✅ Pairing code generated for ${number}: ${code}`);
-            codeGenerated = true;
-            clearTimeout(timeoutId);
-            socket.ev.off('connection.update', connectionHandler);
-            
-            // Store the code temporarily
-            pairingCodes.set(number, {
-              code: code,
-              timestamp: Date.now(),
-              expiresAt: Date.now() + 120000
-            });
-            
-            // Clean up expired codes
-            setTimeout(() => {
-              if (pairingCodes.has(number)) {
-                pairingCodes.delete(number);
-              }
-            }, 120000);
-            
-            resolve(code);
-          } else {
-            reject(new Error('Invalid pairing code received'));
-          }
+          // Store the code temporarily
+          pairingCodes.set(number, {
+            code: pairingCode,
+            timestamp: Date.now(),
+            expiresAt: Date.now() + 120000 // 2 minutes
+          });
+          
+          // Clean up expired codes
+          setTimeout(() => {
+            if (pairingCodes.has(number)) {
+              pairingCodes.delete(number);
+            }
+          }, 120000);
+          
+          clearTimeout(timeoutId);
+          socket.ev.off('connection.update', connectionHandler);
+          resolve(pairingCode);
         } catch (error) {
           reject(error);
         }
       }
       
+      if (connection === 'open') {
+        console.log(`Connection opened for ${number}`);
+        // Connection is already open (already paired)
+        if (!pairingCode) {
+          pairingCode = generatePairCode();
+          pairingCodes.set(number, {
+            code: pairingCode,
+            timestamp: Date.now(),
+            expiresAt: Date.now() + 120000
+          });
+          
+          clearTimeout(timeoutId);
+          socket.ev.off('connection.update', connectionHandler);
+          resolve(pairingCode);
+        }
+      }
+      
       if (connection === 'close') {
-        reject(new Error('Connection closed before code generation'));
+        console.log(`Connection closed for ${number} during pairing`);
+        const error = new Error('Connection closed during pairing');
+        clearTimeout(timeoutId);
+        socket.ev.off('connection.update', connectionHandler);
+        reject(error);
       }
     };
 
@@ -191,9 +212,9 @@ async function generatePairingCode(socket, number) {
     
     // Set timeout for code generation
     timeoutId = setTimeout(() => {
-      if (!codeGenerated) {
+      if (!pairingCode) {
         socket.ev.off('connection.update', connectionHandler);
-        reject(new Error('Pairing code generation timeout'));
+        reject(new Error('Pairing code generation timeout (60s)'));
       }
     }, 60000);
   });
@@ -405,8 +426,12 @@ router.get('/', async (req, res) => {
     // Create new session
     const sessionData = await createWhatsAppSession(cleanNumber);
     
-    // Generate pairing code
-    const pairingCode = await generatePairingCode(sessionData.socket, cleanNumber);
+    // Generate pairing code (this will wait for QR and generate 8-digit code)
+    const pairingCode = await generateWhatsAppPairingCode(sessionData.socket, cleanNumber);
+    
+    if (!pairingCode || pairingCode.length !== 8) {
+      throw new Error(`Invalid pairing code generated: ${pairingCode}`);
+    }
     
     // Store session data
     activeSessions.set(cleanNumber, {
@@ -419,12 +444,12 @@ router.get('/', async (req, res) => {
     // Set up connection handler for after pairing
     setupConnectionHandler(sessionData.socket, cleanNumber, sessionData);
     
-    // Return pairing code to user
+    // Return 8-digit pairing code to user
     res.json({
       success: true,
       code: pairingCode,
       message: 'Pairing code generated successfully',
-      instructions: 'Open WhatsApp → Settings → Linked Devices → Link a Device → Enter this code',
+      instructions: 'Open WhatsApp → Settings → Linked Devices → Link a Device → Enter this 8-digit code',
       expiresIn: '2 minutes',
       number: cleanNumber
     });
@@ -438,7 +463,7 @@ router.get('/', async (req, res) => {
     res.status(500).json({
       error: 'Failed to generate pairing code',
       details: error.message,
-      message: 'Please try again or check if the number is valid'
+      message: 'Please try again. Make sure the number is correct and has WhatsApp installed.'
     });
   }
 });
@@ -584,7 +609,6 @@ console.log(`
 🚀 Server is ready to accept pairing requests!
 📞 Use: /code?number=YOUR_PHONE_NUMBER
 🔗 Example: /code?number=263786624966
+🔢 Pairing codes are 8 digits like WhatsApp Web
 
 `);
-
-module.exports = router;
