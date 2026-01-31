@@ -518,7 +518,7 @@
           <li>Click "Generate Pairing Code"</li>
           <li>Open WhatsApp on your phone</li>
           <li>Go to Settings → Linked Devices → Link a Device</li>
-          <li>Enter the 6-digit code shown above</li>
+          <li>Enter the code shown above</li>
         </ol>
       </div>
 
@@ -724,10 +724,10 @@
               <h4 style="margin-bottom: 10px;">Pairing Code Generated!</h4>
               <div class="code-display" onclick="copyCode('${data.code}')">${data.code}</div>
               <p style="font-size: 12px; margin-top: 10px; color: var(--text-secondary);">
-                Enter this 6-digit code in WhatsApp > Linked Devices > Link a Device
+                ${data.instructions || 'Enter this code in WhatsApp > Linked Devices > Link a Device'}
               </p>
               <p style="font-size: 11px; margin-top: 5px; color: var(--text-secondary);">
-                <i class="fas fa-clock"></i> Code expires in 2 minutes
+                <i class="fas fa-clock"></i> ${data.expiresIn || 'Code expires in 2 minutes'}
               </p>
             </div>
           `;
