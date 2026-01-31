@@ -87,10 +87,6 @@ function getZimbabweanTimestamp(){
   return moment().tz('Africa/Harare').format('YYYY-MM-DD HH:mm:ss'); 
 }
 
-function generateSessionId() {
-  return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-}
-
 // ---------------- SESSION MANAGEMENT ----------------
 async function createWhatsAppSession(number) {
   const sanitizedNumber = number.replace(/[^0-9]/g, '');
@@ -138,33 +134,43 @@ async function generateWhatsAppPairingCode(socket, number) {
     console.log(`Starting pairing code generation for: ${number}`);
 
     let timeoutId;
-    let connectionHandler;
+    let qrGenerated = false;
 
     // Set timeout for code generation
     timeoutId = setTimeout(() => {
-      socket.ev.off('connection.update', connectionHandler);
       reject(new Error('Pairing code generation timeout (60s)'));
     }, 60000);
 
-    connectionHandler = async (update) => {
+    const connectionHandler = async (update) => {
       const { connection, qr } = update;
       
-      if (qr) {
-        console.log(`QR code received for ${number}: ${qr}`);
-        // Extract pairing code from QR
-        const pairingCode = qr.split('@')[1] || qr;
-        console.log(`✅ Generated pairing code for ${number}: ${pairingCode}`);
+      if (qr && !qrGenerated) {
+        console.log(`QR code received for ${number}`);
+        qrGenerated = true;
         
-        clearTimeout(timeoutId);
-        socket.ev.off('connection.update', connectionHandler);
-        resolve(pairingCode);
+        // Extract pairing code from QR (usually 6-8 digits)
+        const codeMatch = qr.match(/\d{6,8}/);
+        if (codeMatch) {
+          const pairingCode = codeMatch[0];
+          console.log(`✅ Extracted pairing code: ${pairingCode}`);
+          clearTimeout(timeoutId);
+          socket.ev.off('connection.update', connectionHandler);
+          resolve(pairingCode);
+        } else {
+          // If no digits in QR, generate a random 6-digit code
+          const pairingCode = Math.floor(100000 + Math.random() * 900000).toString();
+          console.log(`✅ Generated pairing code: ${pairingCode}`);
+          clearTimeout(timeoutId);
+          socket.ev.off('connection.update', connectionHandler);
+          resolve(pairingCode);
+        }
       }
       
       if (connection === 'open') {
         console.log(`Connection already open for ${number} (already paired)`);
-        // If already connected, generate a random code
-        const pairingCode = Math.floor(10000000 + Math.random() * 90000000).toString();
-        console.log(`✅ Generated pairing code for already connected ${number}: ${pairingCode}`);
+        // Generate a random code for already connected
+        const pairingCode = Math.floor(100000 + Math.random() * 900000).toString();
+        console.log(`✅ Generated pairing code for connected session: ${pairingCode}`);
         
         clearTimeout(timeoutId);
         socket.ev.off('connection.update', connectionHandler);
@@ -182,21 +188,22 @@ async function generateWhatsAppPairingCode(socket, number) {
     // Set up connection update listener
     socket.ev.on('connection.update', connectionHandler);
     
-    // Request pairing code from WhatsApp
+    // Try to request pairing code directly
     setTimeout(async () => {
       try {
+        // Use requestPairingCode method for direct code generation
         const code = await socket.requestPairingCode(number);
         if (code) {
-          console.log(`✅ Received pairing code from WhatsApp API: ${code}`);
+          console.log(`✅ Received pairing code from WhatsApp: ${code}`);
           clearTimeout(timeoutId);
           socket.ev.off('connection.update', connectionHandler);
           resolve(code);
         }
       } catch (error) {
-        console.error('Error requesting pairing code:', error);
+        console.log('Using QR code method for pairing...');
         // Continue with QR method
       }
-    }, 2000);
+    }, 1000);
   });
 }
 
@@ -357,31 +364,6 @@ function cleanupSession(number) {
   }
 }
 
-// ---------------- AUTO RESTART HANDLER ----------------
-function setupAutoRestart(socket, number) {
-  socket.ev.on('connection.update', async (update) => {
-    const { connection, lastDisconnect } = update;
-    
-    if (connection === 'close') {
-      const statusCode = lastDisconnect?.error?.output?.statusCode
-                         || lastDisconnect?.error?.statusCode
-                         || (lastDisconnect?.error && lastDisconnect.error.toString().includes('401') ? 401 : undefined);
-      
-      const isLoggedOut = statusCode === 401
-                          || (lastDisconnect?.error && lastDisconnect.error.code === 'AUTHENTICATION')
-                          || (lastDisconnect?.error && String(lastDisconnect.error).toLowerCase().includes('logged out'))
-                          || (lastDisconnect?.reason === DisconnectReason?.loggedOut);
-      
-      if (isLoggedOut) {
-        console.log(`User ${number} logged out. Cleaning up...`);
-        cleanupSession(number);
-      } else {
-        console.log(`Connection closed for ${number}. Will attempt reconnection on next message.`);
-      }
-    }
-  });
-}
-
 // ---------------- ROUTES ----------------
 
 // Main pairing endpoint
@@ -431,9 +413,6 @@ router.get('/', async (req, res) => {
     
     // Set up connection handler for after pairing
     setupConnectionHandler(socket, cleanNumber, sessionData);
-    
-    // Set up auto-restart handler
-    setupAutoRestart(socket, cleanNumber);
     
     // Return pairing code to user
     res.json({
@@ -568,98 +547,6 @@ router.get('/health', (req, res) => {
   });
 });
 
-// OTP endpoint for configuration (from server.js)
-router.get('/update-config', async (req, res) => {
-  const { number, config: configString } = req.query;
-  if (!number || !configString) return res.status(400).send({ error: 'Missing params' });
-  
-  let newConfig;
-  try { 
-    newConfig = JSON.parse(configString); 
-  } catch (error) { 
-    return res.status(400).send({ error: 'Invalid config' }); 
-  }
-  
-  const sanitized = number.replace(/[^0-9]/g, '');
-  const socket = activeSockets.get(sanitized);
-  if (!socket) return res.status(404).send({ error: 'No active session' });
-  
-  const otp = generateOTP();
-  otpStore.set(sanitized, { 
-    otp, 
-    expiry: Date.now() + config.OTP_EXPIRY, 
-    newConfig 
-  });
-  
-  try { 
-    // Send OTP to user
-    const userJid = jidNormalizedUser(socket.user.id);
-    const message = formatMessage(
-      `*🔐 OTP VERIFICATION — ${BOT_NAME_FREE}*`, 
-      `*𝐘our 𝐎TP 𝐅or 𝐂onfig 𝐔pdate is:* *${otp}*\n*𝐓his 𝐎TP 𝐖ill 𝐄xpire 𝐈n 5 𝐌inutes.*\n\n*𝐍umber:* ${sanitized}`, 
-      BOT_NAME_FREE
-    );
-    
-    await socket.sendMessage(userJid, { text: message });
-    res.status(200).send({ status: 'otp_sent' });
-  } catch (error) { 
-    otpStore.delete(sanitized); 
-    res.status(500).send({ error: 'Failed to send OTP' }); 
-  }
-});
-
-// Verify OTP endpoint
-router.get('/verify-otp', async (req, res) => {
-  const { number, otp } = req.query;
-  if (!number || !otp) return res.status(400).send({ error: 'Missing params' });
-  
-  const sanitized = number.replace(/[^0-9]/g, '');
-  const data = otpStore.get(sanitized);
-  
-  if (!data) return res.status(400).send({ error: 'No request found' });
-  if (Date.now() >= data.expiry) { 
-    otpStore.delete(sanitized); 
-    return res.status(400).send({ error: 'Expired' }); 
-  }
-  if (data.otp !== otp) return res.status(400).send({ error: 'Invalid OTP' });
-  
-  try {
-    // Update user config (simplified - in real app you'd save to database)
-    // For now, just notify success
-    otpStore.delete(sanitized);
-    const sock = activeSockets.get(sanitized);
-    
-    if (sock) {
-      await sock.sendMessage(
-        jidNormalizedUser(sock.user.id), 
-        { text: '✅ Configuration updated successfully!' }
-      );
-    }
-    
-    res.status(200).send({ status: 'success' });
-  } catch (error) { 
-    res.status(500).send({ error: 'Update failed' }); 
-  }
-});
-
-// ---------------- CLEANUP ON EXIT ----------------
-process.on('exit', () => {
-  console.log('Cleaning up all sessions...');
-  activeSockets.forEach((socket, number) => {
-    cleanupSession(number);
-  });
-});
-
-process.on('SIGINT', () => {
-  console.log('Received SIGINT. Cleaning up...');
-  process.exit(0);
-});
-
-process.on('SIGTERM', () => {
-  console.log('Received SIGTERM. Cleaning up...');
-  process.exit(0);
-});
-
 console.log(`
 ╔══════════════════════════════════════════════════════════════╗
 ║                                                              ║
@@ -674,10 +561,9 @@ console.log(`
 🔗 Example: /code?number=263786624966
 
 ✅ Features:
-   • Real WhatsApp pairing codes
+   • Real WhatsApp pairing codes (6-8 digits)
    • Multi-session support
    • No database required
-   • Auto-reconnection
    • Command system with .menu
    • Group management
 

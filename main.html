@@ -4,802 +4,359 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Viral-Bot Mini | WhatsApp Pairing</title>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"/>
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    * { 
-      margin: 0; 
-      padding: 0; 
-      box-sizing: border-box; 
-    }
-    
-    :root {
-      --primary: #25D366;
-      --primary-dark: #128C7E;
-      --primary-light: #5af78e;
-      --secondary: #075E54;
-      --accent: #34B7F1;
-      --dark: #0c1a15;
-      --darker: #07110d;
-      --text: #ffffff;
-      --text-secondary: #b0e8d0;
-      --card-bg: rgba(18, 40, 30, 0.9);
-      --border: rgba(37, 211, 102, 0.2);
-      --success: #25D366;
-      --error: #ff4444;
-      --warning: #ffc107;
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
     }
     
     body {
-      font-family: 'Poppins', sans-serif;
-      background: linear-gradient(135deg, var(--darker) 0%, var(--dark) 100%);
-      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #128C7E 0%, #075E54 100%);
+      color: white;
       min-height: 100vh;
       display: flex;
       align-items: center;
       justify-content: center;
       padding: 20px;
-      position: relative;
+    }
+    
+    .container {
+      width: 100%;
+      max-width: 400px;
+      background: white;
+      border-radius: 10px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
       overflow: hidden;
     }
-
-    /* Background Animation */
-    .background-animation {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      z-index: -1;
-      overflow: hidden;
-    }
-
-    .bubble {
-      position: absolute;
-      border-radius: 50%;
-      background: radial-gradient(circle, var(--primary) 0%, transparent 70%);
-      opacity: 0.1;
-      animation: floatUp 15s infinite linear;
-    }
-
-    @keyframes floatUp {
-      0% { transform: translateY(100vh) scale(0.5); opacity: 0; }
-      50% { opacity: 0.2; }
-      100% { transform: translateY(-100px) scale(1.2); opacity: 0; }
-    }
-
-    /* Main Container */
-    .pairing-container {
-      width: 100%;
-      max-width: 480px;
+    
+    .header {
+      background: #25D366;
       padding: 20px;
-      position: relative;
-      z-index: 2;
-    }
-
-    .pairing-card {
-      background: var(--card-bg);
-      backdrop-filter: blur(20px);
-      border-radius: 20px;
-      padding: 40px;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1);
-      border: 1px solid var(--border);
-      position: relative;
-      overflow: hidden;
       text-align: center;
     }
-
-    .pairing-card::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      height: 4px;
-      background: linear-gradient(90deg, var(--primary), var(--accent), var(--primary));
-    }
-
-    .avatar-container {
-      position: relative;
-      width: 100px;
-      height: 100px;
-      margin: -90px auto 20px; 
-      border-radius: 50%;
-      padding: 4px;
-      background: linear-gradient(135deg, var(--primary), var(--accent));
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-    }
-
-    .avatar-img {
-      width: 100%;
-      height: 100%;
-      border-radius: 50%;
-      object-fit: cover;
-      border: 4px solid var(--darker);
-      background: var(--dark);
-    }
-
-    .header-text h2 {
-      font-family: 'Montserrat', sans-serif;
-      font-size: 28px;
-      font-weight: 700;
+    
+    .header h1 {
+      font-size: 24px;
+      font-weight: 600;
       margin-bottom: 5px;
     }
-
-    .header-text h6 {
-      color: var(--primary);
-      font-weight: 500;
-      margin-bottom: 25px;
-      letter-spacing: 1px;
-      text-transform: uppercase;
-      font-size: 11px;
-    }
-
-    .input-group {
-      text-align: left;
-      margin-bottom: 25px;
-    }
-
-    .input-label {
+    
+    .header p {
       font-size: 14px;
-      color: var(--text-secondary);
-      margin-bottom: 10px;
-      display: block;
-      font-weight: 500;
+      opacity: 0.9;
     }
-
-    .input-wrapper {
-      position: relative;
+    
+    .content {
+      padding: 30px;
     }
-
-    .phone-input {
-      width: 100%;
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 12px;
-      padding: 16px 20px;
-      color: var(--text);
-      font-size: 16px;
-      font-family: 'Poppins', sans-serif;
-      outline: none;
-      transition: all 0.3s ease;
-    }
-
-    .phone-input:focus {
-      border-color: var(--primary);
-      background: rgba(255, 255, 255, 0.08);
-      box-shadow: 0 0 0 4px rgba(37, 211, 102, 0.1);
-    }
-
-    .btn {
-      width: 100%;
-      padding: 16px;
-      border-radius: 12px;
-      font-weight: 600;
-      font-size: 16px;
-      cursor: pointer;
-      border: none;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 10px;
-      transition: all 0.3s ease;
-      font-family: 'Montserrat', sans-serif;
-    }
-
-    .btn-primary {
-      background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-      color: white;
-      box-shadow: 0 8px 20px rgba(37, 211, 102, 0.2);
-      margin-bottom: 15px;
-    }
-
-    .btn-primary:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 12px 25px rgba(37, 211, 102, 0.3);
-    }
-
-    .btn-primary:disabled {
-      opacity: 0.7;
-      cursor: not-allowed;
-      transform: none !important;
-    }
-
-    .action-row {
-      display: flex;
-      gap: 10px;
+    
+    .input-group {
       margin-bottom: 20px;
     }
-
-    .btn-secondary {
-      flex: 1;
-      background: rgba(255, 255, 255, 0.05);
-      color: var(--text-secondary);
-      border: 1px solid rgba(255, 255, 255, 0.1);
+    
+    .input-group label {
+      display: block;
       font-size: 14px;
-      padding: 12px;
+      color: #333;
+      margin-bottom: 8px;
+      font-weight: 500;
     }
-
-    .btn-secondary:hover {
-      background: rgba(255, 255, 255, 0.1);
-      color: var(--text);
-    }
-
-    .code-display {
-      font-family: 'Montserrat', monospace;
-      font-size: 32px;
-      font-weight: 700;
-      letter-spacing: 4px;
-      color: var(--primary-light);
-      padding: 20px;
-      background: rgba(0, 0, 0, 0.4);
-      border-radius: 12px;
-      border: 1px solid rgba(37, 211, 102, 0.3);
-      cursor: pointer;
-      transition: all 0.3s ease;
-      margin-top: 15px;
-      position: relative;
-    }
-
-    .code-display:hover {
-      background: rgba(0, 0, 0, 0.6);
-      border-color: var(--primary);
-    }
-
-    .code-display::after {
-      content: 'Click to Copy';
-      position: absolute;
-      bottom: 5px;
-      left: 0;
+    
+    .phone-input {
       width: 100%;
-      font-size: 10px;
-      color: var(--text-secondary);
-      font-weight: 400;
-      letter-spacing: 0;
-      text-transform: uppercase;
-      font-family: 'Poppins', sans-serif;
+      padding: 12px 15px;
+      border: 2px solid #ddd;
+      border-radius: 5px;
+      font-size: 16px;
+      outline: none;
+      transition: border-color 0.3s;
     }
-
-    .loading-spinner {
-      margin: 20px auto;
-      width: 40px;
-      height: 40px;
-      border: 3px solid rgba(255, 255, 255, 0.1);
-      border-top-color: var(--primary);
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
+    
+    .phone-input:focus {
+      border-color: #25D366;
     }
-
-    .status-msg {
-      margin-top: 10px;
-      font-size: 14px;
-      color: var(--text-secondary);
-    }
-
-    .error-box {
-      background: rgba(255, 68, 68, 0.1);
-      border: 1px solid rgba(255, 68, 68, 0.3);
-      color: #ff8888;
-      padding: 15px;
-      border-radius: 10px;
-      margin-top: 20px;
-      font-size: 14px;
+    
+    .btn {
+      width: 100%;
+      padding: 14px;
+      background: #25D366;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.3s;
       display: flex;
       align-items: center;
       justify-content: center;
       gap: 8px;
     }
-
-    .success-box {
-      background: rgba(37, 211, 102, 0.1);
-      border: 1px solid rgba(37, 211, 102, 0.3);
-      color: var(--primary-light);
-      padding: 20px;
-      border-radius: 12px;
-      margin-top: 20px;
-      text-align: center;
+    
+    .btn:hover {
+      background: #128C7E;
     }
-
-    .info-box {
-      background: rgba(52, 183, 241, 0.1);
-      border: 1px solid rgba(52, 183, 241, 0.3);
-      color: var(--accent);
-      padding: 20px;
-      border-radius: 12px;
-      margin-top: 20px;
-      text-align: center;
+    
+    .btn:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
     }
-
-    .info-bar {
-      margin-top: 30px;
-      padding-top: 20px;
-      border-top: 1px solid rgba(255, 255, 255, 0.05);
-      display: flex;
-      justify-content: space-between;
-      font-size: 12px;
-      color: var(--text-secondary);
-    }
-
-    .info-item {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .status-dot {
-      width: 8px;
-      height: 8px;
-      background: var(--success);
-      border-radius: 50%;
-      box-shadow: 0 0 10px var(--success);
-      animation: pulse 2s infinite;
-    }
-
-    .notification {
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      background: var(--card-bg);
-      backdrop-filter: blur(10px);
-      padding: 12px 20px;
-      border-radius: 10px;
-      border-left: 4px solid var(--primary);
-      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-      z-index: 2000;
-      transform: translateX(200%);
-      transition: transform 0.4s ease;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      max-width: 350px;
-    }
-
-    .notification.show {
-      transform: translateX(0);
-    }
-
-    .notification.error {
-      border-left-color: var(--error);
-    }
-
-    .notification.warning {
-      border-left-color: var(--warning);
-    }
-
-    .notification.info {
-      border-left-color: var(--accent);
-    }
-
-    @keyframes spin { to { transform: rotate(360deg); } }
-    @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
-
-    /* Instructions */
-    .instructions {
+    
+    .code-container {
       margin-top: 25px;
-      padding: 15px;
-      background: rgba(255,255,255,0.03);
-      border-radius: 10px;
-      font-size: 12px;
-      color: var(--text-secondary);
+      padding: 20px;
+      background: #f8f9fa;
+      border-radius: 5px;
+      text-align: center;
+      display: none;
     }
-
-    .instructions h4 {
-      color: var(--primary);
-      margin-bottom: 8px;
+    
+    .code-container.active {
+      display: block;
+    }
+    
+    .code-label {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 10px;
+    }
+    
+    .code-display {
+      font-family: monospace;
+      font-size: 32px;
+      font-weight: 700;
+      letter-spacing: 3px;
+      color: #075E54;
+      padding: 15px;
+      background: white;
+      border-radius: 5px;
+      margin: 10px 0;
+      border: 2px solid #25D366;
+    }
+    
+    .copy-btn {
+      padding: 10px 20px;
+      background: #25D366;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.3s;
       display: flex;
       align-items: center;
+      justify-content: center;
       gap: 8px;
+      margin: 0 auto;
     }
-
-    .instructions ol {
-      text-align: left;
-      padding-left: 20px;
-      margin: 0;
+    
+    .copy-btn:hover {
+      background: #128C7E;
     }
-
-    .instructions li {
-      margin-bottom: 5px;
+    
+    .instructions {
+      margin-top: 15px;
+      font-size: 12px;
+      color: #666;
+      text-align: center;
+      line-height: 1.4;
     }
-
-    /* Responsive */
-    @media (max-width: 768px) {
-      .pairing-card {
-        padding: 30px 20px;
-      }
-      
-      .avatar-container {
-        margin-top: -70px;
-        width: 80px;
-        height: 80px;
-      }
-      
-      .header-text h2 {
-        font-size: 24px;
-      }
-      
-      .code-display {
-        font-size: 24px;
-        padding: 15px;
-      }
+    
+    .loading {
+      text-align: center;
+      padding: 20px;
+      display: none;
     }
-
-    @media (max-width: 480px) {
-      body {
-        padding: 10px;
-      }
-      
-      .pairing-card {
-        padding: 25px 15px;
-      }
-      
-      .action-row {
-        flex-direction: column;
-      }
-      
-      .btn-secondary {
-        width: 100%;
-      }
-      
-      .notification {
-        left: 10px;
-        right: 10px;
-        max-width: calc(100% - 20px);
-      }
+    
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #25D366;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 10px;
+    }
+    
+    .error-message {
+      background: #ffebee;
+      color: #c62828;
+      padding: 12px;
+      border-radius: 5px;
+      margin-top: 15px;
+      font-size: 14px;
+      text-align: center;
+      display: none;
+    }
+    
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    
+    .footer {
+      text-align: center;
+      padding: 15px;
+      font-size: 12px;
+      color: #666;
+      border-top: 1px solid #eee;
     }
   </style>
 </head>
 <body>
-
-  <!-- Animation Background -->
-  <div class="background-animation" id="bgAnimation"></div>
-
-  <!-- Notification Toast -->
-  <div class="notification" id="notification">
-    <i class="fas fa-check-circle" style="color: var(--primary)"></i>
-    <span id="notifText">Message</span>
-  </div>
-
-  <!-- PAIRING SECTION -->
-  <div class="pairing-container">
-    <div class="pairing-card">
-      
-      <!-- Floating Avatar -->
-      <div class="avatar-container">
-        <img src="https://i.postimg.cc/tg7spkqh/bot-img.png" alt="Bot" class="avatar-img">
-      </div>
-
-      <div class="header-text">
-        <h2>Pair Device</h2>
-        <h6>VIRAL-BOT-MINI | CALYX STUDIO</h6>
-      </div>
-
-      <!-- Input Form -->
+  <div class="container">
+    <div class="header">
+      <h1>Viral-Bot Mini</h1>
+      <p>WhatsApp Bot Pairing</p>
+    </div>
+    
+    <div class="content">
       <div class="input-group">
-        <label class="input-label"><i class="fas fa-mobile-alt"></i> WhatsApp Number (with country code)</label>
-        <div class="input-wrapper">
-          <input id="number" type="tel" class="phone-input" placeholder="Example: 263786624966" autocomplete="off">
-        </div>
-        <p style="font-size: 12px; color: var(--text-secondary); margin-top: 5px;">
-          Enter your WhatsApp number without + sign
+        <label for="phoneNumber">WhatsApp Number (with country code)</label>
+        <input 
+          type="tel" 
+          id="phoneNumber" 
+          class="phone-input" 
+          placeholder="Example: 263786624966"
+          autocomplete="off"
+        >
+        <p style="font-size: 12px; color: #666; margin-top: 5px;">
+          Enter number without + sign
         </p>
       </div>
-
-      <!-- Submit Button -->
-      <button id="submit" class="btn btn-primary">
+      
+      <button id="pairBtn" class="btn">
         <i class="fas fa-qrcode"></i> Generate Pairing Code
       </button>
-
-      <!-- Action Buttons -->
-      <div class="action-row">
-        <button id="checkBtn" class="btn btn-secondary">
-          <i class="fas fa-wifi"></i> Check Status
-        </button>
-        <button id="clearBtn" class="btn btn-secondary">
-          <i class="fas fa-eraser"></i> Clear
-        </button>
-        <button id="helpBtn" class="btn btn-secondary">
-          <i class="fas fa-question-circle"></i> Help
-        </button>
+      
+      <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <p>Generating pairing code...</p>
       </div>
-
-      <!-- Loading / Result Area -->
-      <div id="waiting-message" style="display: none;">
-        <div class="loading-spinner"></div>
-        <div class="status-msg">Connecting to WhatsApp servers...</div>
+      
+      <div class="error-message" id="errorMessage">
+        <!-- Error will appear here -->
       </div>
-
-      <main id="pair-result"></main>
-
-      <!-- Instructions -->
-      <div class="instructions">
-        <h4><i class="fas fa-info-circle"></i> How to Pair:</h4>
-        <ol>
-          <li>Enter your WhatsApp number</li>
-          <li>Click "Generate Pairing Code"</li>
-          <li>Open WhatsApp on your phone</li>
-          <li>Go to Settings → Linked Devices → Link a Device</li>
-          <li>Enter the code shown above</li>
-        </ol>
-      </div>
-
-      <!-- Footer Info -->
-      <div class="info-bar">
-        <div class="info-item">
-          <i class="fas fa-server"></i> <span id="serverStatus">Checking...</span>
-        </div>
-        <div class="info-item">
-          <span class="status-dot"></span> <span id="connectionStatus">Ready</span>
+      
+      <div class="code-container" id="codeContainer">
+        <div class="code-label">Your Pairing Code</div>
+        <div class="code-display" id="codeDisplay">000000</div>
+        <button class="copy-btn" id="copyBtn">
+          <i class="fas fa-copy"></i> Copy Code
+        </button>
+        <div class="instructions">
+          Open WhatsApp → Settings → Linked Devices → Link a Device<br>
+          Enter the code above
         </div>
       </div>
-
+    </div>
+    
+    <div class="footer">
+      Powered by Calyx Studio | Developer: Wesley
     </div>
   </div>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js"></script>
   <script>
-    // --- Background Animation ---
-    const bgContainer = document.getElementById("bgAnimation");
-    for (let i = 0; i < 20; i++) {
-      const bubble = document.createElement("div");
-      bubble.classList.add("bubble");
-      bubble.style.width = `${Math.random() * 80 + 20}px`;
-      bubble.style.height = bubble.style.width;
-      bubble.style.left = `${Math.random() * 100}%`;
-      bubble.style.animationDuration = `${Math.random() * 10 + 10}s`;
-      bubble.style.animationDelay = `${Math.random() * 5}s`;
-      bgContainer.appendChild(bubble);
+    // DOM Elements
+    const phoneInput = document.getElementById('phoneNumber');
+    const pairBtn = document.getElementById('pairBtn');
+    const loading = document.getElementById('loading');
+    const errorMessage = document.getElementById('errorMessage');
+    const codeContainer = document.getElementById('codeContainer');
+    const codeDisplay = document.getElementById('codeDisplay');
+    const copyBtn = document.getElementById('copyBtn');
+    
+    // Show error message
+    function showError(message) {
+      errorMessage.textContent = message;
+      errorMessage.style.display = 'block';
+      setTimeout(() => {
+        errorMessage.style.display = 'none';
+      }, 5000);
     }
-
-    // --- Notification Logic ---
-    function showToast(msg, type = 'success', duration = 3000) {
-      const notif = document.getElementById("notification");
-      const txt = document.getElementById("notifText");
-      txt.innerText = msg;
-      
-      // Reset classes
-      notif.className = 'notification';
-      
-      // Set type-specific styling
-      if (type === 'error') {
-        notif.classList.add('error');
-        notif.querySelector('i').className = 'fas fa-exclamation-circle';
-        notif.querySelector('i').style.color = 'var(--error)';
-      } else if (type === 'warning') {
-        notif.classList.add('warning');
-        notif.querySelector('i').className = 'fas fa-exclamation-triangle';
-        notif.querySelector('i').style.color = 'var(--warning)';
-      } else if (type === 'info') {
-        notif.classList.add('info');
-        notif.querySelector('i').className = 'fas fa-info-circle';
-        notif.querySelector('i').style.color = 'var(--accent)';
-      } else {
-        notif.querySelector('i').className = 'fas fa-check-circle';
-        notif.querySelector('i').style.color = 'var(--primary)';
-      }
-
-      notif.classList.add("show");
-      setTimeout(() => notif.classList.remove("show"), duration);
-    }
-
-    // --- Copy Logic ---
-    async function copyCode(code) {
+    
+    // Copy code to clipboard
+    async function copyToClipboard(text) {
       try {
-        await navigator.clipboard.writeText(code);
-        showToast("Code copied to clipboard!");
-        return true;
+        await navigator.clipboard.writeText(text);
+        copyBtn.innerHTML = '<i class="fas fa-check"></i> Copied!';
+        copyBtn.style.background = '#4CAF50';
+        
+        setTimeout(() => {
+          copyBtn.innerHTML = '<i class="fas fa-copy"></i> Copy Code';
+          copyBtn.style.background = '';
+        }, 2000);
       } catch (err) {
-        showToast("Failed to copy", "error");
-        return false;
+        showError('Failed to copy code');
       }
     }
-
-    // --- Server Status Check ---
-    async function checkServerStatus() {
-      try {
-        const response = await fetch('/code/health');
-        if (response.ok) {
-          const data = await response.json();
-          document.getElementById('serverStatus').textContent = 'Online';
-          document.getElementById('connectionStatus').textContent = 'Ready';
-          return true;
-        }
-      } catch (error) {
-        console.error('Server status check failed:', error);
-      }
+    
+    // Generate pairing code
+    async function generatePairingCode() {
+      const phoneNumber = phoneInput.value.trim();
       
-      document.getElementById('serverStatus').textContent = 'Offline';
-      document.getElementById('connectionStatus').textContent = 'Offline';
-      return false;
-    }
-
-    // --- Check Number Status ---
-    async function checkStatus() {
-      const inputField = document.getElementById("number");
-      const cleanNumber = inputField.value.replace(/[^0-9]/g, "");
-      
+      // Validate phone number
+      const cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
       if (!cleanNumber || cleanNumber.length < 10) {
-        showToast("Enter a valid number first", "error");
+        showError('Please enter a valid phone number (at least 10 digits)');
         return;
       }
       
+      // Show loading, hide code container
+      loading.style.display = 'block';
+      codeContainer.classList.remove('active');
+      pairBtn.disabled = true;
+      pairBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating...';
+      
       try {
-        const response = await fetch(`/code/status/${cleanNumber}`);
+        // Call the API
+        const response = await fetch(`/code?number=${cleanNumber}`);
         const data = await response.json();
         
-        const resultArea = document.getElementById("pair-result");
-        if (data.connected) {
-          resultArea.innerHTML = `
-            <div class="success-box">
-              <i class="fas fa-check-circle" style="font-size: 24px; margin-bottom: 10px; display: block;"></i>
-              <h4 style="margin-bottom: 10px;">Already Connected!</h4>
-              <p>This number is already connected to the bot.</p>
-              <p style="font-size: 12px; margin-top: 10px;">
-                Connected since: ${data.connectedSince || 'Unknown'}
-              </p>
-              <button onclick="forceReconnect('${cleanNumber}')" class="btn btn-secondary" style="margin-top: 10px; width: 100%;">
-                <i class="fas fa-sync"></i> Force Reconnect
-              </button>
-            </div>
-          `;
-        } else {
-          resultArea.innerHTML = `
-            <div class="info-box">
-              <i class="fas fa-info-circle" style="font-size: 24px; margin-bottom: 10px; display: block;"></i>
-              <h4 style="margin-bottom: 10px;">Not Connected</h4>
-              <p>This number is not currently connected.</p>
-              <p style="font-size: 12px; margin-top: 10px;">
-                Ready for pairing
-              </p>
-            </div>
-          `;
-        }
-        showToast("Status checked", "info");
-      } catch (error) {
-        console.error('Status check error:', error);
-        showToast('Failed to check status', 'error');
-      }
-    }
-
-    // --- Force Reconnect ---
-    async function forceReconnect(number) {
-      if (!confirm('This will disconnect the current session. Continue?')) {
-        return;
-      }
-      
-      try {
-        const response = await fetch(`/code/disconnect/${number}`);
-        const data = await response.json();
-        
-        if (data.success) {
-          showToast('Disconnected successfully. You can now pair again.', 'success');
-          document.getElementById('pair-result').innerHTML = `
-            <div class="success-box">
-              <i class="fas fa-check-circle" style="font-size: 24px; margin-bottom: 10px; display: block;"></i>
-              <h4 style="margin-bottom: 10px;">Disconnected!</h4>
-              <p>The number has been disconnected. You can now generate a new pairing code.</p>
-            </div>
-          `;
-        } else {
-          showToast('Failed to disconnect', 'error');
-        }
-      } catch (error) {
-        console.error('Force reconnect error:', error);
-        showToast('Failed to disconnect', 'error');
-      }
-    }
-
-    // --- Pairing Functionality ---
-    const resultArea = document.getElementById("pair-result");
-    const submitBtn = document.getElementById("submit");
-    const inputField = document.getElementById("number");
-    const waitingArea = document.getElementById("waiting-message");
-
-    submitBtn.addEventListener("click", async (e) => {
-      e.preventDefault();
-      
-      if (!inputField.value) {
-        showToast("Please enter your phone number", "error");
-        return;
-      }
-      
-      const cleanNumber = inputField.value.replace(/[^0-9]/g, "");
-      if (cleanNumber.length < 10) {
-        showToast("Invalid phone number", "error");
-        return;
-      }
-
-      inputField.blur();
-      resultArea.innerHTML = '';
-      waitingArea.style.display = "block";
-      submitBtn.disabled = true;
-      submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating...';
-
-      try {
-        let response = await fetch(`/code?number=${cleanNumber}`);
-        let data = await response.json();
-
         if (data.code) {
-          resultArea.innerHTML = `
-            <div class="success-box">
-              <i class="fas fa-check-circle" style="font-size: 24px; margin-bottom: 10px; display: block;"></i>
-              <h4 style="margin-bottom: 10px;">Pairing Code Generated!</h4>
-              <div class="code-display" onclick="copyCode('${data.code}')">${data.code}</div>
-              <p style="font-size: 12px; margin-top: 10px; color: var(--text-secondary);">
-                ${data.instructions || 'Enter this code in WhatsApp > Linked Devices > Link a Device'}
-              </p>
-              <p style="font-size: 11px; margin-top: 5px; color: var(--text-secondary);">
-                <i class="fas fa-clock"></i> ${data.expiresIn || 'Code expires in 2 minutes'}
-              </p>
-            </div>
-          `;
-          showToast("Pairing Code Generated!");
+          // Show the pairing code
+          codeDisplay.textContent = data.code;
+          codeContainer.classList.add('active');
+          
+          // Scroll to code
+          codeContainer.scrollIntoView({ behavior: 'smooth' });
+          
+          // Set up copy button
+          copyBtn.onclick = () => copyToClipboard(data.code);
         } else if (data.status === 'already_connected') {
-          resultArea.innerHTML = `
-            <div class="info-box">
-              <i class="fas fa-info-circle" style="font-size: 24px; margin-bottom: 10px; display: block;"></i>
-              <h4 style="margin-bottom: 10px;">Already Connected!</h4>
-              <p>This number is already connected to the bot.</p>
-              <p style="font-size: 12px; margin-top: 10px; color: var(--text-secondary);">
-                Connected since: ${data.connectedSince || 'Unknown'}
-              </p>
-              <button onclick="forceReconnect('${cleanNumber}')" class="btn btn-secondary" style="margin-top: 10px; width: 100%;">
-                <i class="fas fa-sync"></i> Force Reconnect
-              </button>
-            </div>
-          `;
-          showToast("Number already connected", "info");
+          showError('This number is already connected to the bot');
         } else {
-          resultArea.innerHTML = `
-            <div class="error-box">
-              <i class="fas fa-exclamation-triangle"></i> ${data.error || data.message || "Service Unavailable"}
-            </div>
-          `;
-          showToast("Failed to generate code", "error");
+          showError(data.error || data.message || 'Failed to generate pairing code');
         }
       } catch (error) {
-        resultArea.innerHTML = `
-          <div class="error-box">
-            <i class="fas fa-wifi"></i> Network Error. Check your connection and try again.
-          </div>
-        `;
-        showToast("Network error", "error");
-        console.error('Pairing error:', error);
+        console.error('Error:', error);
+        showError('Network error. Please try again.');
       } finally {
-        waitingArea.style.display = "none";
-        submitBtn.disabled = false;
-        submitBtn.innerHTML = '<i class="fas fa-qrcode"></i> Generate Pairing Code';
+        // Reset UI
+        loading.style.display = 'none';
+        pairBtn.disabled = false;
+        pairBtn.innerHTML = '<i class="fas fa-qrcode"></i> Generate Pairing Code';
+      }
+    }
+    
+    // Event Listeners
+    pairBtn.addEventListener('click', generatePairingCode);
+    
+    // Enter key support
+    phoneInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        generatePairingCode();
       }
     });
-
-    // Button event handlers
-    document.getElementById("clearBtn").addEventListener("click", () => {
-      inputField.value = "";
-      resultArea.innerHTML = "";
-      inputField.focus();
-      showToast("Cleared");
-    });
-
-    document.getElementById("checkBtn").addEventListener("click", checkStatus);
-
-    document.getElementById("helpBtn").addEventListener("click", () => {
-      showToast("Enter your WhatsApp number and click Generate Pairing Code", "info");
-    });
-
-    // Enter key support
-    inputField.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") submitBtn.click();
-    });
-
+    
     // Auto-focus on input
-    document.addEventListener('DOMContentLoaded', function() {
-      inputField.focus();
-      
-      // Initial server check
-      setTimeout(checkServerStatus, 1000);
-      
-      // Auto-check server status every 30 seconds
-      setInterval(checkServerStatus, 30000);
+    document.addEventListener('DOMContentLoaded', () => {
+      phoneInput.focus();
     });
-
   </script>
 </body>
 </html>
