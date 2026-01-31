@@ -5,7 +5,6 @@ const os = require('os');
 const router = express.Router();
 const pino = require('pino');
 const moment = require('moment-timezone');
-const qrcode = require('qrcode');
 
 // Import the command handler
 const handleCommand = require('./commands'); 
@@ -102,22 +101,6 @@ async function createWhatsAppSession(number) {
     // Ensure session directory exists
     await fs.ensureDir(sessionPath);
     
-    // Create initial credentials if they don't exist
-    const credsPath = path.join(sessionPath, 'creds.json');
-    if (!fs.existsSync(credsPath)) {
-      await fs.writeJSON(credsPath, {
-        noiseKey: { private: {}, public: {} },
-        signedIdentityKey: { private: {}, public: {} },
-        signedPreKey: { keyPair: {} },
-        registrationId: 0,
-        advSecretKey: '',
-        processedHistoryMessages: [],
-        nextPreKeyId: 1,
-        firstUnuploadedPreKeyId: 1,
-        accountSettings: { unarchiveChats: false }
-      });
-    }
-    
     const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
     const logger = pino({ level: 'silent' });
     
@@ -209,7 +192,7 @@ async function connectBot(number, sessionData) {
       
       if (qr) {
         console.log(`QR code generated for ${sanitizedNumber}`);
-        // You could send QR code to frontend here if needed
+        // QR code available but we're using pairing codes
       }
       
       if (connection === 'open') {
@@ -592,16 +575,10 @@ router.get('/health', (req, res) => {
 router.get('/qr/:number', async (req, res) => {
   const { number } = req.params;
   
-  try {
-    // This would generate a QR code for scanning
-    // For now, we'll just return pairing code method
-    res.json({
-      message: 'Use /code?number=YOUR_NUMBER to get pairing code',
-      alternative: 'Pairing code is preferred for this bot'
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+  res.json({
+    message: 'Use /code?number=YOUR_NUMBER to get pairing code',
+    alternative: 'Pairing code is preferred for this bot'
+  });
 });
 
 // Update user config
